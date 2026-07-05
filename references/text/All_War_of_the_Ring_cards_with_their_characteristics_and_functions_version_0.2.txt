@@ -1,0 +1,166 @@
+--- Sheet: Paths & Battlefields ---
+Ring 	Path	VP's	Def.	Effects		Battlefield	VP's	Def.	Effects	Defender	Defender	Attacker	Attacker	Attacker
+1	Bag End	1		Hobbit player draws 2 cards		Helms Deep	2	2	Rohan player draws 5 cards, may play 1 Army or Charcter on Helms deep, cycles rest	Wizard	Rohan	Isengard
+1	Gildors Encampment	1	1	The Elf player draws 1 card and then cycles 1 card from hand		Edoras	1	1	Activate Helms deep if in Free Peoples battleground deck	Wizard	Rohan	Isengard
+1	Bucklebury Ferry	1	1	The Mordor and Hobbit player draw each 1 card		Rivendel	2	2	Elf player draws 1 card and then cycles 1 card from hand	Wizard	Elf	Monstrous
+2	The old forest	2	1	Each Free Peoples must forsake 1 card		Lorien	2	2	(Re)activate Dol Guldur	Wizard	Elf	Monstrous	Mordor
+2	Inn of The prancing pony	2	1	Each Shadow player draws 2 cards		Minas Tirith	3	3	Dunedain player MAY forsake 1 card to draw 3 cards	Wizard	Dunedain	Southron	Mordor
+2	Weathertop	2		The Mordor player draws 2 cards		Dol Amroth	1	2	Dunedain player MAY forsake 1 card to draw 1 card	Wizard	Dunedain	Southron
+3	Fords of Bruinen	1		Each Free Peoples player must forsake 1 card and then draws 3 cards		Pelargir	1	1	Dunedain player MAY forsake 1 card to draw 1 card	Wizard	Dunedain	Southron
+3	Imladris (Rivendel)	1	1	The Elf player draws 2 cards		Moria	1	2	Monstrous player draws 2 cards	Monstrous		Wizard	Dwarf	Elf 
+3	The council of Elrond	1	1	Each Free Peoples player draws 1 card		Dol Guldur	1	2	Lorien must be (re)activated		Mordor	Wizard		Elf 
+4	Caradhras	2		Each Free Peoples must forsake 1 card		Minas Morgul	2	2	Morder player draws 5 cards, may play 1 Nazgûl character in Reserve, cycles rest		Mordor	Wizard		Dunedain
+4	The doors of Durin	2		The Monstrous player MAY forsake 1 card to add 1 attack marker to this path		Morannon	2	2	Morder player draws 5 cards, may play 1 Army and cycles rest	Southron	Mordor	Wizard	Rohan	Dunedain
+4	Khazad-Dûm (Moria)	2		The Monstrous player draws 2 cards		Harad	1	1	Each Shadow player draws 1 card	Southron		Wizard		Dunedain
+5	Dimrill Dale	1		Each Shadow player must cycle 2 cards from hand		Umbar	1	2	Each Shadow player draws 1 card	Southron		Wizard		Dunedain
+5	Egladil	1	1	Each Free Peoples player draws 2 cards and then cycles 1 card from hand		Orthanc	2	2	Isengard player may take Saruman from draw/cycle deck into hand; recycles cycle pile	Isengard		Wizard	Rohan
+5	Lothlorien (Lorien)	1	2	The Elf player draws 1 card and then cycles 1 card from hand
+6	Amon Hen	2		The Mordor player draws 1 card and then cycles 1 card from hand
+6	Emyn Muil	2		Each Free Peoples must forsake 1 card
+6	Dead Marshes	2	1	The Monstrous player draws 2 cards
+7	Osgiliath	1		The Dunedain player MAY forsake 1 card to draw 3 cards
+7	The Cross Roads	1		Each Free Peoples player draws 1 card
+7	Henneth Annûn	1	1	The Dunedain player draws 1 card
+8	Morgul Vale	2		The Morder player draws 5 cards, may play 1 Nazgûl character and cycles rest
+8	Cirith Ungol	2		The Morder player draws 5 cards, may play 1 Army and cycles rest
+8	Shelob's Lair	2		The Monstrous player draws 2 cards
+9	Morgai	3		 SP adds 1 attack marker to this path
+9	Orodruin	3		The Mordor player draws 2 cards
+9	Crack of (mount) Doom 	3		The Monstrous player draws 2 cards
+
+--- Sheet: Aragorn ---
+Type	Name	Path/to	Strength	Attack 	Defense	Effect
+Army	Dead man of Dunharow			*	*	+ 2 Attack and + 2 defense tokens when I22supporting Strider or Aragorn
+Army	Knights of Dol Amroth			1	1*	*= + 1 Defense token on Dol Amroth
+Army	Guards of the Citadel			1	1*	*= + 1 Defense token on Minas Tirith
+Army	Soldiers of Gondor			1	1
+Army	The Greatt Gate				*	* = +3 Defense token on Minas Tirith. This card can never played or moved to a Shadow battleground.
+Char.	Aragorn			1 + (1)	1 + (1)	When played remove Strider from the game. While in reserve draw +1 card in the Draw step. If forsaken from top of the draw deck, cycle instead.
+Char.	Boromir	3-6	1	(1)	1	When played draw 1 card. When played or moved to a path, you MUST forsake 1 card.
+Char.	Denethor			(1)	(1)	If in reserve, you may use your action and forsake 1 card to take Boromir OR Faramir from your draw deck into hand
+Char.	Faramir	7-8	1	(1)	1	If played or moved to a path 7, you may activate a different path of the same #
+Char.	Halbarad	2-3	1	(1)	1	If in reserve, you may use your action and cycle this card to take Strider OR Aragorn from your draw deck into hand
+Char.	Prince Imrahil			(1)	1	When played you may cycle 1 card from handto take Knights of Dol Amroth from the draw deck into hand
+Char.	Strider	2-6	2	1	1	If on a path 7, you may use your action to activate a path of the next higher #. If Aragorn is played remove Strider from the game.
+Char.	Ioreth				(1)	After combat on a battleground, Ioreth is cycled with 1 other non-Wizard character instead of being eliminated. Any wielded items ARE eliminated.
+Item	Andûril	Strider/Aragorn	1	1	1	If in reserve, you may use your action to (re)activate any Dunedain battleground, then you MUST move the wielder (active or not) to that battelground.
+Item	Blade of Westernesse	Hobbit	1	1	1
+Event	Paths of the Dead					Forsake 2 cards and then draw 4 cards (or 5 if Strider/ Aragorn is in play).
+Event	The Red Arrow					This Round Rohan cards may be played on Dunedain battlegrounds
+Event	The three Hunters					This Round Strider/Aragorn, Gimli and Legolas may be moved or played on any battleground and supported by any FP army.
+Army 	High Elves			2	2
+Army 	High Elves			2	2
+Char.	Arwen				-1	When played draw 1 card. While in reserve, add 1 Defense Token to Strider or Aragorn on a path or battleground
+Char.	Elrond	3	2	1+(1)	1+(1)	When played draw 1 card. While in reserve increase your carryover limit by 1.
+Char.	Galadriel	5	2	1+(1)	1+(1)	When played draw 1 card. While in reserve draw +1 card in the Draw step, then cycle 1 card from hand.
+Char.	Legolas	3-9	1	1	1	When played you may take the Bow of Galadhrim from your draw deck into hand.
+Item	Bow of Galadhrim	Elf	1	1	1	The wielder of this card can not wield another weapon.
+Item	Elven Cloak	Hobbit or Elf	1			If its wielder is eliminated in PATH combat, cycle the wielder instead along with any wielded items
+Item	Lembas	Hobbit				If on a path, the Hobbit player may use an action to eliminate this card to remove 1 corruption token for each Hobbit character on the path
+Item	Mirror of Galadriel 	Galadriel				While in play, you may alway examine the top card of your draw deck
+Item	Nenya, Ring of Adamant	Galadriel				If in reserve, you may use your action and cycle this card to add 1 Defense token to the active path OR an active battleground
+Item	Phial of Galadriel 	Frodo or Sam				If on a path, add 2 Defense tokens to the path
+Item	Vilya, Ring of Air	Elrond	1	1	1	If in reserve, you may use your action and cycle this card so that each FP player draws 1 card.
+
+--- Sheet: Frodo ---
+Type	Name	Path/to 	Strength	Attack 	Defense	Effect
+Char.	Gimli	3-9	1	1	1	When played you may take "Dwarevn Axe" from your cycle pile into your hand
+Item	Dwarven Axe		1	1	1
+Char.	Frodo Baggins	1-9	1			If eliminated or being forsaken, cycle instead (any wielded items ARE eliminated).
+Char.	Merry Brandybuck	1-9	1		(1)	May be played or moved to a Rohan battleground supported by a Rohan army. If eliminated in PATH combat, cycle instead and any wielded items
+Char.	Pippin Took	1-9	1		(1)	May be played or moved to a Dunedain battleground supported by a Dunedain army. If eliminated in PATH combat, cycle instead and any wielded items
+Char.	Sam Gamgee	1-9	1			If in reserve, you may use your action and cycle this card (+ any with wielded items) to add 1 Defense token to the active path
+Char.	Bilbo Baggins	3	1			If eliminated or being forsaken, cycle instead and any wielded items. If in reserve you may use your action and cycle this card to draw 2 cards.
+Char.	Fatty Bolger					If in reserve and when forsaken, cycle instead and any wielded items. If in reserve you may use your action and eliminate this card to draw 3 cards.
+Item	Herbs & stewed Rabbit	Frodo, Sam				If in play, you may use your action and eliminate this card to take 1 Hobbit Character from the cycle pile into your hand and draw 1 card
+Item	Sting	Frodo, Sam				If the wielder is on a path with a Monstrous Character then add 1 Defense token to the active path
+Item	Mithril Coat	Frodo, Sam	2
+Event	There is another way					Activate and select a different path with the same number as the active path and add 1 Defense token to the new path
+Army	Riders of Rohan			2	1
+Army	Riders of Rohan			2	1
+Army	Village Militia			1	1
+Char.	Eomer			1	(1)	When played draw 5 cards; from these play up to 1 Rohan army and cycle the rest
+Char.	Eowyn			1	(1)	When played to a battleground you may eliminate 1 Nazgûl character. When played to reserve you may take Merry or Pippin from cycle pile into hand.
+Char.	Ghan-Buri-Ghan				(1)	While in reserve, Rohan cards may be played or moved to Minas Tirith
+Char.	Theoden			*	*	*= +1 if Gandalf is in play. When played draw 5 cards; from these play up to 1 Rohan card and cycle the rest
+Item	Shadowfax	Gandalf		1	1	While in reserve, you may use your action to (re)activate any battleground, then you MUST move the wielder (Gandalf) to that battleground
+Event	Death! Ride, ride to ruin					Eliminate any number of Rohan cards in reserve; the Mordor player must then eliminate the same number of Mordor cards from active battlegrounds
+Char.	Gandalf the Grey	1-9	3	2	2	If on a path, you may use your action to activate a path of the next higher #. If GtW is played, eliminate GtG
+Char.	Gandalf the White 			2	3	When played remove GtG from the game; While in reserve draw +1 card in each Draw step. If forsaken from top of the draw deck, cycle instead
+Char.	Treebeard (Ent)	5-6	1	1*	1	* = +1 on Orthanc. If played/moved to a battleground Isengard player must eliminate 1 Isengard army
+Char.	Quickbeam (Ent)	5-6	1	*	*	* = 1 for every 2 Isengard Character/Armies on the same battleground
+Char.	Smeagol	6-9	1			If on a path, you may use your action to activate a path of the next higher #; add 1 corruption token. If eliminated in PATH combat, cycle instead
+Char.	Gwaihir the Windlord	9	1	1	1	If in reserve, you may use your action to cycle this card to take Gandalf from your cycle pile into hand
+Item	Gandalfs Staff	Gandalf	1	1	1	While in play increase your carryover limit by 1
+Item	Glamdring 	Gandalf	1	1	1
+Item	Narya, Ring of Fire	Gandalf	1	1	1	If in reserve, you may use your action to cycle this card so that each Shadow player must cycle 1 card from hand
+Item	Ent-draught	Ent				If in play, you may use your action and eliminate this card to take 2 Hobbit Characters from the cycle pile into hand 
+
+--- Sheet: Saruman ---
+Type	Name	Path/to	Strength	Attack 	Defense	Effect
+Army	Devilry of Satruman			3
+Army	Fighting Uruk-Hai			1	2
+Army	Wolf Riders			2	1
+Army	White Hand Orcs			1	1
+Army	White Hand Orcs			1	1
+Char.	Grima Wormtongue	1-2/5-6	1			If in reserve you may use your action and eliminate this card to either take Saruman from the draw deck in hand or eliminate a Rohan Character
+Char.	Saruman	5-6	2	1 + (1)	1 + (1)	While in reserve draw +1 card in the Draw step. If forsaken from top of the draw deck, cycle instead.
+Char.	Ugluk	5-6	1	(1)	(1)	If on a path you may use your action to activate a different path of the same #
+Item	Palantir	Saruman				If in reserve, once per Round you may use your action to examine the top 3 cards of the draw deck; from these elminate 1, cycle 1 and take 1 in hand
+Item	Saruman's Staff	Saruman	1	1	1	While in play increase your carryover limit by 1
+Item	Woven of all colours	Saruman				If the wielder (Saruman) is eliminated in combat, cycle instead along with any wielded items
+Event	Threats and Promises					If Saruman is in reserve (active or not), (re)activate any Isengard battleground of your choice, then you MAY move Saruman to that battleground
+Army	Goblins Misty Mountains			1	1
+Army	Goblins Misty Mountains			1	1
+Char.	Barrow-Wights	1-3	1			If in reserve you may use your action and eliminate this card so each FP player must forsake 1 card
+Char.	Flocks of Crebain	1-7	1			If on a path you may use your action to activate a different path of the same #.
+Char.	Hill Troll	2-9	1	1	1	If in reserve you may use your action and eliminate this card so each FP player must forsake 1 card
+Char.	Balrog	4-5	2*	2	2	*= +1 on Khazad-Dûm. When played or moved to a path or battleground each FP player must forsake 1 card
+Char.	Caradhras	4-5	1			When played on Caradhras, activate a different path of the same #. If in reserve you may use your action and eliminate this card so each FP player must forsake 1 card
+Char.	Cave Troll	4/8-9	1	1	1	If in reserve you may use your action and eliminate this card so each FP player must forsake 1 card
+Char.	Candles of Corpses	6-7	1*			*= on Dead Marshes. If in reserve you may use your action and eliminate this card so each FP player must forsake 1 card
+Char.	Gollum	6-9	1			If on a path you may use your action to activate a different path of the same #. If Gollum is eliminated in path combat, cycle nstead
+Char.	Shelob	7-9	1*			*= +1 on Shelob's Lair.When played or moved to a path or battleground each FP player must forsake 1 card
+Item	Whip of many Thongs	Balrog	1	1	1	When played, draw 1 card.
+Army	Haradrim Mûmakil			2	1
+Army	Coastal Raiders			1*	1	*= +1 on Dol Amroth battleground. If in reserve you may use your action and eliminate this card to activate Dol Amroth if in FP battleground deck
+Army	Haradrim Cavalry			1*	1	*= +1 on Minas Tirith battleground. If in reserve you may use your action and eliminate this card to activate Minas Tirith if in FP battleground deck
+Army	The Black Fleet			1*	1	*= +1 on Pelargir battleground. If in reserve you may use your action and eliminate this card to activate Pelargir if in FP battleground deck
+Army	Corsairs of Umbar			1	1	If in reserve you may use your action and eliminate this card to activate Umbar if in Shadows player battleground deck
+Army	Haradrim Regulars			1	1	If in reserve you may use your action and eliminate this card to activate Harad if in Shadows player battleground deck
+Char.	The Black Serpent			(1)	(1)	If in reserve you may use your action and eliminate this card to reactivate any Southron battleground
+
+--- Sheet: Witchking ---
+Type	Name	Path/to	Strength	Attack 	Defense	Effect
+Army	Grond, hammer underworld			3
+Army	Olog-Hai			2	2
+Army	Trolls of Udûn			1	2
+Army	Black Uruks			2	1
+Army	Mordor Orcs			1	1
+Army	Mordor Orcs			1	1
+Army	Mordor Orcs			1	1
+Army	Mordor Orcs			1	1
+Army	Mordor Orcs			1	1
+Char.	The Witch-King (Nazgûl)	1-3/5-9	2	2		While in reserve draw +1 card in the draw step. If forsaken from top of the draw deck, cycle instead.
+Char.	The Reaver (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card so that each FP player must forsake 1 card
+Char.	The Beguiler (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card so that each FP player must cycle 1 card from hand
+Char.	The Hunter (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card to add 1 Attack token to an active path
+Char.	The Messenger (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card to take a Nzagûl character from the cycle pile into hand
+Char.	The Black Easterling (Nazgûl)	1-3/5-9	1	(1)	(1)*	*= +1 Defense token on Dol Guldur. When played draw 1 card.
+Char.	The Commander (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card so that each Shadow player draws 1 card
+Char.	The Destroyer (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card to add 1 Attack token to an active battleground
+Char.	The Warrior (Nazgûl)	1-3/5-9	1	(1)		If in reserve you may use your action and cycle this card to add 1 Defense token to an active battleground
+Char.	Grishnakh	6-7	1	(1)		When on a path you may use your action and eliminate this card to add 1 corruption token 
+Char.	Mouth of Sauron	7-9	1	(1)	(1)	This card can not be played or moved to a path if a Shadow battleground is active. While in reserve draw +1 card in the draw step.
+Char.	Gorbag & Shagrat	8-9	*		(1)	*= When played or moved to a path you may cycle 1 card from hand to add 1 attack token or 2 tokens if Cirith Ungol is the active path
+Char.	The Lidless Eye	9	1			Cannot be played/moved to a path if a SP-battleground is active.When played each SP draws 1 card. While in reserve increase your COL by 1
+Char.	Gothmog					While in reserve draw +1 card in the draw step. When played remove the Witch-King from the game.
+Item	Nazgûls Mantle 	Nazgûl				If its Nazgûl is eliminated in combat, cycle it instead along with any wielded items
+Item	Black Breath	Nazgûl				If on a path or battleground you may use your action and cycle this card, its Nazgûl and any wielde items to add 1 corruption token
+Item	Black Riders Mount	Nazgûl				When played on a Nazgûl in reserve (active or not), you may immediately move them to a path
+Item	Fell Beast	Nazgûl				When played on a Nazgûl in reserve (active or not), you may immediately move them to a battleground
+Item	Morgul Blade	Nazgûl				If on a path you may use your action and eliminate this card to add 1 corruption token
+Event	The Black Captain					If the Witch-King is in reserve (active or not), (re)activate any Mordor battleground, then you MAY move the Witch-King to this battleground 
+Event	The Ringwraiths are abroad					Draw 7 cards, eliminate 1 and play up to 2 Nazgûl Characters, cycle the rest
+Event	The Day without Dawn					Draw 7 cards, eliminate 1 and play up to 2 armies, cycle the rest
+
