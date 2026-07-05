@@ -108,6 +108,60 @@ describe("game engine", () => {
     expect(validateState(next)).toEqual([]);
   });
 
+  it("allows item cards to be played to reserve but not directly to locations", () => {
+    const playerId: PlayerId = "aragorn";
+    const item = "aragorn-anduril-46-1";
+    const cost = "aragorn-strider-44-1";
+    const state = setPlayerZones(createGame("reserve-item"), playerId, {
+      hand: [item, cost],
+    });
+
+    expect(canPlayTo(state, playerId, item, "reserve")).toBe(true);
+    expect(canPlayTo(state, playerId, item, "path")).toBe(false);
+    expect(canPlayTo(state, playerId, item, "battleground")).toBe(false);
+
+    const next = playCard(state, playerId, item, "reserve", cost);
+
+    expect(next.players[playerId].reserve).toContain(item);
+    expect(next.players[playerId].cycle).toContain(cost);
+    expect(validateState(next)).toEqual([]);
+  });
+
+  it("forsakes from the draw deck when playing the only hand card", () => {
+    const playerId: PlayerId = "aragorn";
+    const played = "aragorn-boromir-39-1";
+    const forsaken = "aragorn-faramir-41-1";
+    const state = setPlayerZones(createGame("last-card-draw-cost"), playerId, {
+      draw: [forsaken],
+      hand: [played],
+      cycle: [],
+    });
+
+    const next = playCard(state, playerId, played, "reserve");
+
+    expect(next.players[playerId].reserve).toContain(played);
+    expect(next.players[playerId].eliminated).toContain(forsaken);
+    expect(validateState(next)).toEqual([]);
+  });
+
+  it("can play the final hand card when no draw or cycle card can pay the cost", () => {
+    const playerId: PlayerId = "frodo";
+    const played = "frodo-bilbo-baggins-73-1";
+    const state = setPlayerZones(createGame("absolute-last-card"), playerId, {
+      draw: [],
+      hand: [played],
+      cycle: [],
+    });
+
+    const next = playCard(state, playerId, played, "reserve");
+
+    expect(next.players[playerId].reserve).toContain(played);
+    expect(next.players[playerId].hand).toHaveLength(0);
+    expect(next.players[playerId].draw).toHaveLength(0);
+    expect(next.players[playerId].cycle).toHaveLength(0);
+    expect(validateState(next)).toEqual([]);
+  });
+
   it("rejects illegal battleground plays without mutating zones", () => {
     const state = createGame("illegal-battle");
     const playerId: PlayerId = "frodo";
@@ -177,6 +231,41 @@ function findPlayable(
 
 function totalCards(state: GameState): number {
   return Object.keys(state.cards).length;
+}
+
+function setPlayerZones(
+  state: GameState,
+  playerId: PlayerId,
+  zones: Partial<
+    Pick<GameState["players"][PlayerId], "draw" | "hand" | "cycle" | "eliminated" | "reserve">
+  >,
+): GameState {
+  const targetPlayer = state.players[playerId];
+  const explicitCards = new Set(Object.values(zones).flat());
+  const keptEliminated = targetPlayer.eliminated.filter(
+    (instanceId) => !explicitCards.has(instanceId),
+  );
+  const sweptCards = [
+    ...targetPlayer.draw,
+    ...targetPlayer.hand,
+    ...targetPlayer.cycle,
+    ...targetPlayer.reserve,
+  ].filter((instanceId) => !explicitCards.has(instanceId));
+
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [playerId]: {
+        ...targetPlayer,
+        draw: zones.draw ?? [],
+        hand: zones.hand ?? [],
+        cycle: zones.cycle ?? [],
+        reserve: zones.reserve ?? [],
+        eliminated: zones.eliminated ?? [...keptEliminated, ...sweptCards],
+      },
+    },
+  };
 }
 
 function mustHave<T>(value: T | undefined): T {
