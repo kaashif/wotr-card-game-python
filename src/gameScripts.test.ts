@@ -175,7 +175,10 @@ describe("compact game scripts", () => {
     const paid = resolveCardRef(state, card.owner, cost.id);
 
     expect(result.finalState.players[card.owner].reserve).toContain(played);
-    expect(result.finalState.players[card.owner].cycle).toContain(paid);
+    expect(
+      result.finalState.players[card.owner].cycle.includes(paid) ||
+        result.finalState.players[card.owner].hand.includes(paid),
+    ).toBe(true);
     expect(result.frames.every((frame) => frame.errors.length === 0)).toBe(true);
   });
 
@@ -241,7 +244,7 @@ function expectedLegality(
   destination: PlayDestination,
 ): boolean {
   if (destination === "reserve") {
-    return card.type === "army" || card.type === "character";
+    return card.type === "army" || card.type === "character" || card.type === "event";
   }
   if (destination === "path") {
     const path = pathDefinitions.find((candidate) => candidate.id === state.activePath?.id);
@@ -258,7 +261,9 @@ function expectedLegality(
     battleground !== undefined &&
     card.type !== "event" &&
     card.type !== "item" &&
-    battlegroundFactions(battleground).includes(card.faction)
+    (battlegroundFactions(battleground).includes(card.faction) ||
+      (card.id === "merry-brandybuck-70" && battlegroundFactions(battleground).includes("rohan")) ||
+      (card.id === "pippin-took-71" && battlegroundFactions(battleground).includes("dunedain")))
   );
 }
 

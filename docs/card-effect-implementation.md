@@ -13,9 +13,10 @@ First implementation pass:
   support: draw, corruption, path attack/defense tokens, pending forsake/search
   decisions, draw/play/cycle-rest decisions, carryover modifiers, and
   cycle-instead replacement declarations.
-- Combat modifiers, legal-play restrictions, round rules, and complex
-  replacement effects are represented as typed declarative instructions until
-  the wider combat/legal-action kernel can execute them.
+- Combat modifiers, legal-play restrictions, round rules, and replacement
+  effects now have runtime consumers in the game kernel. Complex optional
+  choices that require UI selection still become pending decisions when the
+  current engine cannot resolve them automatically.
 - There are no remaining `todo` card-effect records in the registry.
 
 ## aragorn
