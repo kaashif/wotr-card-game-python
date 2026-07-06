@@ -46,6 +46,10 @@ function applyInstruction(
     case "todo":
     case "replacementCycleInstead":
     case "modifyCarryover":
+    case "conditionalCombatModifier":
+    case "playRestriction":
+    case "roundRuleModifier":
+    case "replacementEffect":
       return state;
     case "draw":
       return applyToTargets(state, instruction.target, controller, (nextState, playerId) =>

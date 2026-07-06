@@ -29,11 +29,16 @@ describe("card effect implementation registry", () => {
     }
   });
 
-  it("makes the remaining card-effect TODO list explicit", () => {
+  it("scripts every card effect record", () => {
     const todo = cardEffectImplementations.filter((entry) => entry.status === "todo");
-    expect(todo.length).toBeGreaterThan(0);
-    expect(todo.length).toBeLessThan(cardDefinitions.length);
-    expect(todo.every((entry) => entry.todo !== undefined && entry.todo.length > 0)).toBe(true);
+    expect(todo).toEqual([]);
+    expect(
+      cardEffectImplementations.flatMap((entry) =>
+        entry.scripts.flatMap((script) =>
+          script.instructions.filter((instruction) => instruction.type === "todo"),
+        ),
+      ),
+    ).toEqual([]);
   });
 
   it("scripts known high-value card effects", () => {
