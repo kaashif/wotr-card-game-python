@@ -36,11 +36,11 @@ const legalityCases = cardDefinitions.flatMap((card) =>
 );
 
 const reservePlayCases = cardDefinitions
-  .filter((card) => card.type !== "event")
+  .filter((card) => card.type === "army" || card.type === "character")
   .map((card) => ({ name: `${card.owner}:${card.id}:reserve-play`, card }));
 
 const lastCardCases = cardDefinitions
-  .filter((card) => card.type !== "event")
+  .filter((card) => card.type === "army" || card.type === "character")
   .map((card) => ({ name: `${card.owner}:${card.id}:last-card`, card }));
 
 const generatedCaseCount =
@@ -63,19 +63,19 @@ describe("compact game scripts", () => {
       arrange: {
         players: {
           aragorn: {
-            hand: ["anduril-46", "strider-44"],
+            hand: ["strider-44", "aragorn-38"],
           },
         },
       },
       steps: [
         { action: "selectPlayer", player: "aragorn" },
-        { action: "play", player: "aragorn", card: "anduril-46", destination: "reserve" },
+        { action: "play", player: "aragorn", card: "strider-44", destination: "reserve" },
       ],
     });
 
     expect(result.frames).toHaveLength(3);
     expect(result.frames.every((frame) => frame.errors.length === 0)).toBe(true);
-    expect(renderReplay(result)).toContain("aragorn play anduril-46 to reserve");
+    expect(renderReplay(result)).toContain("aragorn play strider-44 to reserve");
     expect(exportGameScript(result.script)).toContain('"seed": "example-replay"');
   });
 
@@ -241,7 +241,7 @@ function expectedLegality(
   destination: PlayDestination,
 ): boolean {
   if (destination === "reserve") {
-    return card.type !== "event";
+    return card.type === "army" || card.type === "character";
   }
   if (destination === "path") {
     const path = pathDefinitions.find((candidate) => candidate.id === state.activePath?.id);
