@@ -23,7 +23,8 @@ export type Zone =
   | "eliminated"
   | "reserve"
   | "battleground"
-  | "path";
+  | "path"
+  | "inPlay";
 
 export type Phase = "setup" | "action" | "combat" | "gameOver";
 

@@ -7,6 +7,7 @@ import {
 } from "./data";
 import {
   canPlayTo,
+  canMoveTo,
   attachItem,
   createGame,
   cycleCard,
@@ -272,7 +273,7 @@ describe("game engine", () => {
 
   it("winnows by eliminating two hand cards and drawing one", () => {
     const playerId: PlayerId = "frodo";
-    const first = "frodo-frodo-baggins-69-1";
+    const first = "frodo-sting-76-1";
     const second = "frodo-sam-gamgee-72-1";
     const drawn = "frodo-bilbo-baggins-73-1";
     const state = {
@@ -292,6 +293,33 @@ describe("game engine", () => {
         expect.arrayContaining([first, second]),
       );
       expect(result.state.players[playerId].hand).toContain(drawn);
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
+  it("cycles Frodo instead of eliminating him when a replacement applies", () => {
+    const playerId: PlayerId = "frodo";
+    const frodo = "frodo-frodo-baggins-69-1";
+    const other = "frodo-sam-gamgee-72-1";
+    const state = {
+      ...setPlayerZones(createGame("frodo-replacement"), playerId, {
+        hand: [frodo, other],
+        draw: [],
+        cycle: [],
+      }),
+      activePlayer: playerId,
+    };
+
+    const result = tryWinnow(state, playerId, frodo, other);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.state.players[playerId].cycle.includes(frodo) ||
+          result.state.players[playerId].hand.includes(frodo),
+      ).toBe(true);
+      expect(result.state.players[playerId].eliminated).not.toContain(frodo);
+      expect(result.state.players[playerId].eliminated).toContain(other);
       expect(validateState(result.state)).toEqual([]);
     }
   });
@@ -319,6 +347,94 @@ describe("game engine", () => {
       expect(reserveResult.state.players[playerId].eliminated).toContain(reserve);
       expect(drawResult.state.players[playerId].eliminated).toContain(draw);
     }
+  });
+
+  it("plays events through reserve dispatch and eliminates them after resolving", () => {
+    const playerId: PlayerId = "aragorn";
+    const event = "aragorn-the-red-arrow-49-1";
+    const cost = "aragorn-boromir-39-1";
+    const state = {
+      ...setPlayerZones(createGame("event-dispatch"), playerId, {
+        hand: [event, cost],
+        draw: [],
+        cycle: [],
+      }),
+      activePlayer: playerId,
+    };
+
+    const next = playCard(state, playerId, event, "reserve", cost);
+
+    expect(next.players[playerId].reserve).not.toContain(event);
+    expect(next.players[playerId].eliminated).toContain(event);
+    expect(next.roundMemory.playedCharacterOrItemCards).toContain("the-red-arrow-49");
+    expect(validateState(next)).toEqual([]);
+  });
+
+  it("enforces scripted play restrictions and round-rule destination expansion", () => {
+    const playerId: PlayerId = "frodo";
+    const rohan = "frodo-eomer-82-1";
+    const state = setPlayerZones(createGame("round-rule-access"), playerId, {
+      hand: [rohan, "frodo-sam-gamgee-72-1"],
+      draw: [],
+      cycle: [],
+    });
+    const minasTirith = {
+      ...state,
+      activeBattleground: { id: "minas-tirith", cards: [], attackTokens: 0, defenseTokens: 0 },
+    };
+
+    expect(canPlayTo(minasTirith, playerId, rohan, "battleground")).toBe(false);
+    expect(
+      canPlayTo(
+        {
+          ...minasTirith,
+          roundMemory: {
+            ...minasTirith.roundMemory,
+            playedCharacterOrItemCards: ["the-red-arrow-49"],
+          },
+        },
+        playerId,
+        rohan,
+        "battleground",
+      ),
+    ).toBe(true);
+
+    const greatGate = "aragorn-the-greatt-gate-37-1";
+    const restricted = setPlayerZones(createGame("great-gate-restriction"), "aragorn", {
+      hand: [greatGate, "aragorn-boromir-39-1"],
+      reserve: [greatGate],
+      draw: [],
+      cycle: [],
+    });
+    const shadowBattleground = {
+      ...restricted,
+      activeBattleground: { id: "minas-morgul", cards: [], attackTokens: 0, defenseTokens: 0 },
+    };
+
+    expect(canPlayTo(shadowBattleground, "aragorn", greatGate, "battleground")).toBe(false);
+    expect(canMoveTo(shadowBattleground, "aragorn", greatGate, "battleground")).toBe(false);
+  });
+
+  it("applies scripted conditional battleground combat modifiers", () => {
+    const greatGate = "aragorn-the-greatt-gate-37-1";
+    const blackUruks = "witchKing-black-uruks-138-1";
+    const mordorOrcs = "witchKing-mordor-orcs-139-1";
+    const state = placeOnBattleground(
+      setPlayerZones(createGame("great-gate-combat"), "aragorn", {
+        draw: [],
+        hand: [],
+        cycle: [],
+      }),
+      "minas-tirith",
+      [greatGate, blackUruks, mordorOrcs],
+      1,
+    );
+
+    const next = resolveCombat(state);
+
+    expect(next.scoringAreas.battlegrounds.free).toContain("minas-tirith");
+    expect(next.scoringAreas.battlegrounds.shadow).not.toContain("minas-tirith");
+    expect(validateState(next)).toEqual([]);
   });
 });
 
@@ -369,6 +485,36 @@ function setPlayerZones(
         reserve: zones.reserve ?? [],
         eliminated: zones.eliminated ?? [...keptEliminated, ...sweptCards],
       },
+    },
+  };
+}
+
+function placeOnBattleground(
+  state: GameState,
+  battlegroundId: string,
+  cards: readonly string[],
+  attackTokens = 0,
+): GameState {
+  const activeCards = new Set(cards);
+  const cleanedPlayer = (playerId: PlayerId): GameState["players"][PlayerId] => {
+    const player = state.players[playerId];
+    return {
+      ...player,
+      draw: player.draw.filter((instanceId) => !activeCards.has(instanceId)),
+      hand: player.hand.filter((instanceId) => !activeCards.has(instanceId)),
+      cycle: player.cycle.filter((instanceId) => !activeCards.has(instanceId)),
+      reserve: player.reserve.filter((instanceId) => !activeCards.has(instanceId)),
+      eliminated: player.eliminated.filter((instanceId) => !activeCards.has(instanceId)),
+    };
+  };
+  return {
+    ...state,
+    activeBattleground: { id: battlegroundId, cards, attackTokens, defenseTokens: 0 },
+    players: {
+      frodo: cleanedPlayer("frodo"),
+      aragorn: cleanedPlayer("aragorn"),
+      witchKing: cleanedPlayer("witchKing"),
+      saruman: cleanedPlayer("saruman"),
     },
   };
 }

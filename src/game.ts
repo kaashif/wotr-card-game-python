@@ -5,6 +5,12 @@ import {
   players,
   turnOrder,
 } from "./data";
+import {
+  getCardEffectImplementation,
+  type EffectInstruction,
+  type EffectTarget,
+  type SearchZone,
+} from "./cardEffectScripts";
 import type {
   ActiveBattleground,
   ActivePath,
@@ -23,6 +29,8 @@ import type {
   RuleViolation,
   Side,
 } from "./types";
+
+type EliminationContext = "effect" | "forsake" | "pathCombat" | "battlegroundCombat";
 
 const startingHandSize = 7;
 const setupCycleCount = 2;
@@ -276,6 +284,17 @@ export function playCard(
   if (cardDef.type === "character" || cardDef.type === "item") {
     nextState = rememberCharacterOrItemPlayed(nextState, cardDef.id);
   }
+  if (cardDef.type === "event") {
+    nextState = rememberCharacterOrItemPlayed(nextState, cardDef.id);
+  }
+
+  nextState = applyRuntimeCardScripts(nextState, cardDef.id, "whenPlayed", playerId);
+  if (destination !== "reserve") {
+    nextState = applyRuntimeCardScripts(nextState, cardDef.id, "whenPlayedOrMoved", playerId);
+  }
+  if (cardDef.type === "event") {
+    nextState = eliminateCards(nextState, [instanceId], "effect");
+  }
 
   return addLog(
     nextState,
@@ -437,6 +456,10 @@ export function usePlayerRingToken(
   );
 }
 
+export function drawForPlayer(state: GameState, playerId: PlayerId, count: number): GameState {
+  return drawCards(state, playerId, count);
+}
+
 export function tryPass(state: GameState): CommandResult {
   const playerId = state.activePlayer;
   const turnViolation = validateActionTurn(state, playerId);
@@ -557,6 +580,8 @@ export function moveFromReserve(
     };
   }
 
+  nextState = applyRuntimeCardScripts(nextState, cardDef.id, "whenPlayedOrMoved", playerId);
+
   return addLog(
     nextState,
     `${players[playerId].name} moved ${cardDef.title} to ${destination}.`,
@@ -597,7 +622,7 @@ export function winnow(
   secondCardId: string,
 ): GameState {
   const nextState = drawCards(
-    eliminateCards(state, [firstCardId, secondCardId]),
+    eliminateCards(state, [firstCardId, secondCardId], "effect"),
     playerId,
     1,
   );
@@ -639,10 +664,10 @@ export function forsakeCard(
     return null;
   }
   if (source === "hand" && player.hand.includes(instanceId)) {
-    return eliminateCards(state, [instanceId]);
+    return eliminateCards(state, [instanceId], "forsake");
   }
   if (source === "reserve" && player.reserve.includes(instanceId)) {
-    return eliminateCards(state, [instanceId]);
+    return eliminateCards(state, [instanceId], "forsake");
   }
   return null;
 }
@@ -893,8 +918,11 @@ export function canPlayTo(
   }
   const card = getCard(state, instanceId);
   const cardDef = getCardDefinition(card.cardId);
+  if (violatesPlayRestriction(state, cardDef, destination)) {
+    return false;
+  }
   if (destination === "reserve") {
-    return cardDef.type === "army" || cardDef.type === "character";
+    return cardDef.type === "army" || cardDef.type === "character" || cardDef.type === "event";
   }
   if (destination === "battleground") {
     const battleground = state.activeBattleground;
@@ -909,7 +937,10 @@ export function canPlayTo(
       ...battlegroundDef.attackingFactions,
       ...battlegroundDef.defendingFactions,
     ];
-    return playableFactions.includes(cardDef.faction);
+    return (
+      playableFactions.includes(cardDef.faction) ||
+      hasExpandedBattlegroundAccess(state, cardDef, battleground.id)
+    );
   }
   const path = state.activePath;
   return (
@@ -931,6 +962,9 @@ export function canMoveTo(
   }
   const card = getCard(state, instanceId);
   const cardDef = getCardDefinition(card.cardId);
+  if (violatesPlayRestriction(state, cardDef, destination)) {
+    return false;
+  }
   if (cardDef.type !== "army" && cardDef.type !== "character") {
     return false;
   }
@@ -954,7 +988,306 @@ export function canMoveTo(
     ...battlegroundDef.attackingFactions,
     ...battlegroundDef.defendingFactions,
   ];
-  return playableFactions.includes(cardDef.faction);
+  return (
+    playableFactions.includes(cardDef.faction) ||
+    hasExpandedBattlegroundAccess(state, cardDef, battleground.id)
+  );
+}
+
+function applyRuntimeCardScripts(
+  state: GameState,
+  cardId: string,
+  timing: "whenPlayed" | "whenPlayedOrMoved" | "whileInReserve",
+  controller: PlayerId,
+): GameState {
+  return getCardEffectImplementation(cardId).scripts
+    .filter((script) => script.timing === timing)
+    .flatMap((script) => script.instructions)
+    .reduce(
+      (nextState, instruction) => applyRuntimeInstruction(nextState, instruction, controller),
+      state,
+    );
+}
+
+function applyRuntimeInstruction(
+  state: GameState,
+  instruction: EffectInstruction,
+  controller: PlayerId,
+): GameState {
+  switch (instruction.type) {
+    case "noop":
+    case "todo":
+    case "replacementCycleInstead":
+    case "modifyCarryover":
+    case "conditionalCombatModifier":
+    case "playRestriction":
+    case "roundRuleModifier":
+    case "replacementEffect":
+      return state;
+    case "draw":
+      return targetPlayers(instruction.target, controller).reduce(
+        (nextState, playerId) => drawCards(nextState, playerId, instruction.count),
+        state,
+      );
+    case "addPathAttack":
+      return addActivePathAttackTokens(state, instruction.count);
+    case "addPathDefense":
+      return addActivePathDefenseTokens(state, instruction.count);
+    case "addBattlegroundAttack":
+      return addActiveBattlegroundAttackTokens(state, instruction.count);
+    case "addBattlegroundDefense":
+      return addActiveBattlegroundDefenseTokens(state, instruction.count);
+    case "addCorruption":
+      return addCorruption(state, instruction.count);
+    case "removeCorruption":
+      return removeCorruption(
+        state,
+        instruction.count === "hobbitsOnPath" ? hobbitsOnActivePath(state) : instruction.count,
+      );
+    case "forsake":
+      return enqueueForRuntimeTargets(state, instruction.target, controller, (playerId) => ({
+        type: "forsake",
+        playerId,
+        reason: "card effect",
+        minimum: instruction.count,
+        source: "card-effect-script",
+      }));
+    case "cycleFromHand":
+      return enqueueForRuntimeTargets(state, instruction.target, controller, (playerId) => ({
+        type: "forsake",
+        playerId,
+        reason: `cycle ${instruction.count} from hand`,
+        minimum: instruction.count,
+        source: "card-effect-script:cycle-from-hand",
+      }));
+    case "search":
+      return enqueueForRuntimeTargets(state, instruction.target, controller, (playerId) => ({
+        type: "search",
+        playerId,
+        zones: instruction.from,
+        choices: searchChoices(state, playerId, instruction.from, instruction.query),
+        source: instruction.query,
+      }));
+    case "activatePath":
+    case "activateBattleground":
+    case "moveWielder":
+    case "cycleSelf":
+    case "eliminateSelf":
+    case "cycleRestDrawn":
+      return enqueuePendingDecision(state, {
+        type: "search",
+        playerId: controller,
+        zones: ["inPlay"],
+        choices: [],
+        source: `unresolved:${instruction.type}`,
+      });
+    case "playFromDrawn":
+      return enqueuePendingDecision(state, {
+        type: "drawPlayCycleRest",
+        playerId: controller,
+        drawnCards: [],
+        playableCards: [],
+        maxPlays: instruction.max,
+        source: instruction.filter,
+      });
+  }
+}
+
+function enqueueForRuntimeTargets(
+  state: GameState,
+  target: EffectTarget,
+  controller: PlayerId,
+  decision: (playerId: PlayerId) => PendingDecision,
+): GameState {
+  return targetPlayers(target, controller).reduce(
+    (nextState, playerId) => enqueuePendingDecision(nextState, decision(playerId)),
+    state,
+  );
+}
+
+function targetPlayers(target: EffectTarget, controller: PlayerId): readonly PlayerId[] {
+  switch (target) {
+    case "self":
+    case "owner":
+      return [controller];
+    case "freePlayers":
+      return turnOrder.filter((playerId) => players[playerId].side === "free");
+    case "shadowPlayers":
+      return turnOrder.filter((playerId) => players[playerId].side === "shadow");
+    case "eachPlayer":
+      return turnOrder;
+    case "hobbitPlayer":
+      return ["frodo"];
+    case "mordorPlayer":
+      return ["witchKing"];
+    case "elfPlayer":
+    case "dunedainPlayer":
+      return ["aragorn"];
+    case "monstrousPlayer":
+    case "isengardPlayer":
+      return ["saruman"];
+    case "rohanPlayer":
+      return ["frodo"];
+  }
+}
+
+function searchChoices(
+  state: GameState,
+  playerId: PlayerId,
+  zones: readonly SearchZone[],
+  query: string,
+): readonly string[] {
+  const normalizedQuery = normalizeName(query);
+  return zones.flatMap((zone) => zoneCards(state, playerId, zone)).filter((instanceId) => {
+    const card = getCardDefinition(getCard(state, instanceId).cardId);
+    const title = normalizeName(card.title);
+    if (normalizedQuery.includes("hobbit character")) {
+      return card.type === "character" && card.faction === "hobbit";
+    }
+    if (normalizedQuery.includes("nazgul character")) {
+      return card.type === "character" && title.includes("nazgul");
+    }
+    if (normalizedQuery.includes("rohan character")) {
+      return card.type === "character" && card.faction === "rohan";
+    }
+    if (normalizedQuery.includes("saruman")) {
+      return title.includes("saruman");
+    }
+    if (normalizedQuery.includes("gandalf")) {
+      return title.includes("gandalf");
+    }
+    if (normalizedQuery.includes("strider") || normalizedQuery.includes("aragorn")) {
+      return title.includes("strider") || title === "aragorn";
+    }
+    if (normalizedQuery.includes("boromir") || normalizedQuery.includes("faramir")) {
+      return title.includes("boromir") || title.includes("faramir");
+    }
+    if (normalizedQuery.includes("merry") || normalizedQuery.includes("pippin")) {
+      return title.includes("merry") || title.includes("pippin");
+    }
+    return normalizedQuery.split(" ").some((part) => part.length > 3 && title.includes(part));
+  });
+}
+
+function zoneCards(state: GameState, playerId: PlayerId, zone: SearchZone): readonly string[] {
+  const player = state.players[playerId];
+  switch (zone) {
+    case "draw":
+    case "hand":
+    case "cycle":
+    case "reserve":
+      return player[zone];
+    case "inPlay":
+      return [
+        ...player.reserve,
+        ...(state.activePath?.cards ?? []).filter((instanceId) => findOwner(state, instanceId) === playerId),
+        ...(state.activeBattleground?.cards ?? []).filter((instanceId) => findOwner(state, instanceId) === playerId),
+      ];
+  }
+}
+
+function addActiveBattlegroundAttackTokens(state: GameState, count: number): GameState {
+  if (count <= 0 || state.activeBattleground === null) {
+    return state;
+  }
+  return {
+    ...state,
+    activeBattleground: {
+      ...state.activeBattleground,
+      attackTokens: state.activeBattleground.attackTokens + count,
+    },
+  };
+}
+
+function addActiveBattlegroundDefenseTokens(state: GameState, count: number): GameState {
+  if (count <= 0 || state.activeBattleground === null) {
+    return state;
+  }
+  return {
+    ...state,
+    activeBattleground: {
+      ...state.activeBattleground,
+      defenseTokens: state.activeBattleground.defenseTokens + count,
+    },
+  };
+}
+
+function violatesPlayRestriction(
+  state: GameState,
+  cardDef: CardDefinition,
+  destination: PlayDestination,
+): boolean {
+  if (
+    destination === "battleground" &&
+    cardDef.id === "the-greatt-gate-37" &&
+    state.activeBattleground !== null
+  ) {
+    return battlegroundById.get(state.activeBattleground.id)?.side === "shadow";
+  }
+  if (
+    destination === "path" &&
+    (cardDef.id === "mouth-of-sauron-154" || cardDef.id === "the-lidless-eye-156") &&
+    state.activeBattleground !== null
+  ) {
+    return battlegroundById.get(state.activeBattleground.id)?.side === "shadow";
+  }
+  return false;
+}
+
+function hasExpandedBattlegroundAccess(
+  state: GameState,
+  cardDef: CardDefinition,
+  battlegroundId: string,
+): boolean {
+  if (cardDef.id === "merry-brandybuck-70" && battlegroundHasFaction(battlegroundId, "rohan")) {
+    return true;
+  }
+  if (cardDef.id === "pippin-took-71" && battlegroundHasFaction(battlegroundId, "dunedain")) {
+    return true;
+  }
+  if (
+    cardDef.faction === "rohan" &&
+    (battlegroundHasFaction(battlegroundId, "dunedain") || battlegroundId === "minas-tirith") &&
+    (isCardInPlay(state, "ghan-buri-ghan-84") || wasEventPlayedThisRound(state, "the-red-arrow-49"))
+  ) {
+    return true;
+  }
+  if (
+    ["strider-44", "aragorn-38", "gimli-67", "legolas-56"].includes(cardDef.id) &&
+    wasEventPlayedThisRound(state, "the-three-hunters-50")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function battlegroundHasFaction(battlegroundId: string, faction: Faction): boolean {
+  const battleground = battlegroundById.get(battlegroundId);
+  return battleground === undefined
+    ? false
+    : ([...battleground.attackingFactions, ...battleground.defendingFactions] as readonly Faction[])
+        .includes(faction);
+}
+
+function wasEventPlayedThisRound(state: GameState, cardId: string): boolean {
+  return state.roundMemory.playedCharacterOrItemCards.includes(cardId);
+}
+
+function isCardInPlay(state: GameState, cardId: string): boolean {
+  return Object.keys(state.cards).some((instanceId) => {
+    return getCard(state, instanceId).cardId === cardId && isInPlay(state, instanceId);
+  });
+}
+
+function isAnyCardInPlay(state: GameState, cardIds: readonly string[]): boolean {
+  return cardIds.some((cardId) => isCardInPlay(state, cardId));
+}
+
+function hobbitsOnActivePath(state: GameState): number {
+  return (state.activePath?.cards ?? []).filter((instanceId) => {
+    const card = getCardDefinition(getCard(state, instanceId).cardId);
+    return card.type === "character" && card.faction === "hobbit";
+  }).length;
 }
 
 function startRound(state: GameState): GameState {
@@ -1029,14 +1362,14 @@ function scoreBattleground(
     (instanceId) => !attackingCards.includes(instanceId),
   );
   const attack = attackingCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.battlegroundAttack + card.leadershipAttack, 0);
+    .reduce((sum, instanceId) => sum + battlegroundAttackFor(state, instanceId, battleground), 0);
   const defense =
     definition.defenseIcons +
     battleground.defenseTokens +
-    defendingCards
-      .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-      .reduce((sum, card) => sum + card.battlegroundDefense + card.leadershipDefense, 0);
+    defendingCards.reduce(
+      (sum, instanceId) => sum + battlegroundDefenseFor(state, instanceId, battleground),
+      0,
+    );
   const winner: Side = attack > defense ? oppositeSide(definition.side) : definition.side;
   const locationDefense = definition.defenseIcons + battleground.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
@@ -1064,6 +1397,7 @@ function scoreBattleground(
           },
         },
         [...attackingCards, ...defenderLosses],
+        "battlegroundCombat",
       ),
       defenderSurvivors,
     ),
@@ -1079,13 +1413,13 @@ function scorePath(state: GameState, path: ActivePath): GameState {
   const shadowCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "shadow");
   const freeCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "free");
   const attack = path.attackTokens + shadowCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
-  const locationDefense = definition.defenseIcons + path.defenseTokens;
+    .reduce((sum, instanceId) => sum + pathAttackFor(state, instanceId, path), 0);
+  const locationDefense = definition.defenseIcons + path.defenseTokens + pathDefenseTokenBonus(state, path);
   const remainingAttack = Math.max(0, attack - locationDefense);
-  const freeDefense = freeCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
+  const freeDefense = freeCards.reduce(
+    (sum, instanceId) => sum + pathDefenseFor(state, instanceId, path),
+    0,
+  );
   const uncanceledAttack = Math.max(0, remainingAttack - freeDefense);
   const winner: Side = uncanceledAttack === 0 ? "free" : "shadow";
   const { eliminated: defenderLosses, cycled: defenderSurvivors } =
@@ -1118,6 +1452,7 @@ function scorePath(state: GameState, path: ActivePath): GameState {
           },
         },
         [...shadowCards, ...defenderLosses],
+        "pathCombat",
       ),
       defenderSurvivors,
     ),
@@ -1126,10 +1461,16 @@ function scorePath(state: GameState, path: ActivePath): GameState {
 }
 
 function executeDrawStep(state: GameState): GameState {
-  return turnOrder.reduce(
+  const afterBaseDraw = turnOrder.reduce(
     (nextState, playerId) => drawCards(nextState, playerId, players[playerId].drawCount),
     state,
   );
+  return turnOrder.reduce((nextState, playerId) => {
+    return nextState.players[playerId].reserve.reduce((reserveState, instanceId) => {
+      const cardId = getCard(reserveState, instanceId).cardId;
+      return applyRuntimeCardScripts(reserveState, cardId, "whileInReserve", playerId);
+    }, nextState);
+  }, afterBaseDraw);
 }
 
 function drawCards(state: GameState, playerId: PlayerId, count: number): GameState {
@@ -1171,15 +1512,28 @@ function forsakeFromTopOfDeck(state: GameState, playerId: PlayerId): GameState {
   if (forsaken === undefined) {
     return state;
   }
-  return updatePlayer(state, playerId, () => ({
+  const removedFromDraw = updatePlayer(state, playerId, () => ({
     ...replenished,
     draw: remainingDraw,
-    eliminated: [...replenished.eliminated, forsaken],
   }));
+  return shouldCycleInstead(removedFromDraw, forsaken, "forsake")
+    ? cycleCards(removedFromDraw, [forsaken])
+    : eliminateCards(removedFromDraw, [forsaken], "forsake");
 }
 
-function eliminateCards(state: GameState, instanceIds: readonly string[]): GameState {
-  const cardsToEliminate = expandWithAttachedItems(state, instanceIds);
+function eliminateCards(
+  state: GameState,
+  instanceIds: readonly string[],
+  context: EliminationContext,
+): GameState {
+  const cardsToCycle = instanceIds.filter((instanceId) =>
+    shouldCycleInstead(state, instanceId, context),
+  );
+  const cardsToEliminate = expandWithAttachedItems(
+    state,
+    instanceIds.filter((instanceId) => !cardsToCycle.includes(instanceId)),
+  );
+  const afterCycling = cycleCardsForReplacement(state, cardsToCycle, context);
   return cardsToEliminate.reduce((nextState, instanceId) => {
     const owner = findOwner(nextState, instanceId);
     if (owner === null) {
@@ -1200,7 +1554,7 @@ function eliminateCards(state: GameState, instanceIds: readonly string[]): GameS
         instanceId,
       ),
     );
-  }, removeAttachmentLinks(state, cardsToEliminate));
+  }, removeAttachmentLinks(afterCycling, cardsToEliminate));
 }
 
 function cycleCards(state: GameState, instanceIds: readonly string[]): GameState {
@@ -1358,8 +1712,19 @@ function isInPlay(state: GameState, instanceId: string): boolean {
   );
 }
 
-function carryoverLimit(_state: GameState, _playerId: PlayerId): number {
-  return baseCarryoverLimit;
+function carryoverLimit(state: GameState, playerId: PlayerId): number {
+  const reserveBonus = state.players[playerId].reserve.reduce((bonus, instanceId) => {
+    const implementation = getCardEffectImplementation(getCard(state, instanceId).cardId);
+    return bonus + implementation.scripts
+      .filter((script) => script.timing === "always")
+      .flatMap((script) => script.instructions)
+      .reduce(
+        (sum, instruction) =>
+          instruction.type === "modifyCarryover" ? sum + instruction.amount : sum,
+        0,
+      );
+  }, 0);
+  return baseCarryoverLimit + reserveBonus;
 }
 
 function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
@@ -1434,16 +1799,190 @@ function assignDefenderLosses(
   };
 }
 
+function battlegroundAttackFor(
+  state: GameState,
+  instanceId: string,
+  battleground: ActiveBattleground,
+): number {
+  const definition = getCardDefinition(getCard(state, instanceId).cardId);
+  let value = definition.battlegroundAttack + definition.leadershipAttack;
+  if (
+    definition.id === "dead-man-of-dunharow-33" &&
+    battleground.cards.some((cardId) =>
+      ["strider-44", "aragorn-38"].includes(getCardDefinition(getCard(state, cardId).cardId).id),
+    )
+  ) {
+    value += 2;
+  }
+  if (definition.id === "treebeard-ent-90" && battleground.id === "orthanc") {
+    value += 1;
+  }
+  if (definition.id === "quickbeam-ent-91") {
+    const isengardCount = battleground.cards.filter((cardId) => {
+      const card = getCardDefinition(getCard(state, cardId).cardId);
+      return card.faction === "isengard" && (card.type === "army" || card.type === "character");
+    }).length;
+    value += Math.floor(isengardCount / 2);
+  }
+  if (definition.id === "balrog-118" && battleground.id === "khazad-dum") {
+    value += 1;
+  }
+  if (definition.id === "shelob-123" && battleground.id === "shelobs-lair") {
+    value += 1;
+  }
+  return value;
+}
+
+function battlegroundDefenseFor(
+  state: GameState,
+  instanceId: string,
+  battleground: ActiveBattleground,
+): number {
+  const definition = getCardDefinition(getCard(state, instanceId).cardId);
+  let value = definition.battlegroundDefense + definition.leadershipDefense;
+  if (
+    definition.id === "dead-man-of-dunharow-33" &&
+    battleground.cards.some((cardId) =>
+      ["strider-44", "aragorn-38"].includes(getCardDefinition(getCard(state, cardId).cardId).id),
+    )
+  ) {
+    value += 2;
+  }
+  if (definition.id === "knights-of-dol-amroth-34" && battleground.id === "dol-amroth") {
+    value += 1;
+  }
+  if (definition.id === "guards-of-the-citadel-35" && battleground.id === "minas-tirith") {
+    value += 1;
+  }
+  if (definition.id === "the-greatt-gate-37" && battleground.id === "minas-tirith") {
+    value += 3;
+  }
+  if (definition.id === "theoden-85" && isAnyCardInPlay(state, ["gandalf-the-grey-88", "gandalf-the-white-89"])) {
+    value += 1;
+  }
+  if (definition.id === "the-black-easterling-nazgul-149" && battleground.id === "dol-guldur") {
+    value += 1;
+  }
+  if (definition.id === "coastal-raiders-126" && battleground.id === "dol-amroth") {
+    value += 1;
+  }
+  if (definition.id === "haradrim-cavalry-127" && battleground.id === "minas-tirith") {
+    value += 1;
+  }
+  if (definition.id === "the-black-fleet-128" && battleground.id === "pelargir") {
+    value += 1;
+  }
+  return value;
+}
+
+function pathAttackFor(state: GameState, instanceId: string, path: ActivePath): number {
+  const definition = getCardDefinition(getCard(state, instanceId).cardId);
+  let value = definition.pathIcons;
+  if (definition.id === "candles-of-corpses-121" && path.id === "dead-marshes") {
+    value += 1;
+  }
+  return value;
+}
+
+function pathDefenseFor(state: GameState, instanceId: string, _path: ActivePath): number {
+  return getCardDefinition(getCard(state, instanceId).cardId).pathIcons;
+}
+
+function pathDefenseTokenBonus(state: GameState, path: ActivePath): number {
+  let bonus = 0;
+  for (const [wielderId, itemIds] of Object.entries(state.attachments)) {
+    if (!path.cards.includes(wielderId)) {
+      continue;
+    }
+    if (
+      itemIds.some((itemId) => getCard(state, itemId).cardId === "sting-76") &&
+      path.cards.some((instanceId) => getCardDefinition(getCard(state, instanceId).cardId).faction === "monstrous")
+    ) {
+      bonus += 1;
+    }
+    if (itemIds.some((itemId) => getCard(state, itemId).cardId === "phial-of-galadriel-62")) {
+      bonus += 2;
+    }
+  }
+  return bonus;
+}
+
+function shouldCycleInstead(
+  state: GameState,
+  instanceId: string,
+  context: EliminationContext,
+): boolean {
+  const cardId = getCard(state, instanceId).cardId;
+  if (["frodo-baggins-69", "bilbo-baggins-73"].includes(cardId)) {
+    return true;
+  }
+  if (cardId === "fatty-bolger-74" && context === "forsake") {
+    return true;
+  }
+  if (
+    context === "pathCombat" &&
+    ["merry-brandybuck-70", "pippin-took-71", "smeagol-92", "gollum-122"].includes(cardId)
+  ) {
+    return true;
+  }
+  if (context === "battlegroundCombat" && cardId === "ioreth-45") {
+    return true;
+  }
+  const attachedItemIds = state.attachments[instanceId] ?? [];
+  if (
+    context === "pathCombat" &&
+    attachedItemIds.some((itemId) => getCard(state, itemId).cardId === "elven-cloak-58")
+  ) {
+    return true;
+  }
+  if (
+    (context === "pathCombat" || context === "battlegroundCombat") &&
+    attachedItemIds.some((itemId) => getCard(state, itemId).cardId === "nazguls-mantle-158")
+  ) {
+    return true;
+  }
+  if (
+    (context === "pathCombat" || context === "battlegroundCombat") &&
+    attachedItemIds.some((itemId) => getCard(state, itemId).cardId === "woven-of-all-colours-111")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function cycleCardsForReplacement(
+  state: GameState,
+  instanceIds: readonly string[],
+  context: EliminationContext,
+): GameState {
+  return instanceIds.reduce((nextState, instanceId) => {
+    const cardId = getCard(nextState, instanceId).cardId;
+    const shouldEliminateAttachments =
+      ["frodo-baggins-69", "bilbo-baggins-73"].includes(cardId) ||
+      (cardId === "ioreth-45" && context === "battlegroundCombat");
+    const attached = nextState.attachments[instanceId] ?? [];
+    const cycled = shouldEliminateAttachments
+      ? cycleCards(removeAttachmentLinks(nextState, attached), [instanceId])
+      : cycleCards(nextState, [instanceId]);
+    return shouldEliminateAttachments ? eliminateCards(cycled, attached, "effect") : cycled;
+  }, state);
+}
+
 function defenseIconsFor(
   state: GameState,
   instanceId: string,
   combatType: "battleground" | "path",
 ): number {
-  const definition = getCardDefinition(getCard(state, instanceId).cardId);
   if (combatType === "path") {
-    return definition.pathIcons;
+    return state.activePath === null
+      ? getCardDefinition(getCard(state, instanceId).cardId).pathIcons
+      : pathDefenseFor(state, instanceId, state.activePath);
   }
-  return definition.battlegroundDefense + definition.leadershipDefense;
+  if (state.activeBattleground === null) {
+    const definition = getCardDefinition(getCard(state, instanceId).cardId);
+    return definition.battlegroundDefense + definition.leadershipDefense;
+  }
+  return battlegroundDefenseFor(state, instanceId, state.activeBattleground);
 }
 
 function cardSide(state: GameState, instanceId: string): Side {
