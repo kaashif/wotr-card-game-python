@@ -156,6 +156,8 @@ cython_debug/
 node_modules/
 dist/
 coverage/
+playwright-report/
+test-results/
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

@@ -27,10 +27,14 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
       - name: Test
         run: npm test
       - name: Build
         run: npm run build
+      - name: End-to-end UI tests
+        run: npm run test:e2e
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
