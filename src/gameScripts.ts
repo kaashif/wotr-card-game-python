@@ -47,6 +47,8 @@ export interface CompactArrangement {
 export interface CompactActivePath {
   readonly id: string;
   readonly cards?: readonly string[];
+  readonly attackTokens?: number;
+  readonly defenseTokens?: number;
 }
 
 export interface CompactActiveBattleground {
@@ -292,6 +294,8 @@ function resolveActivePath(
   return {
     id: activePath.id,
     cards: activePath.cards?.map((card) => resolveAnyCardRef(state, card)) ?? [],
+    attackTokens: activePath.attackTokens ?? 0,
+    defenseTokens: activePath.defenseTokens ?? 0,
   };
 }
 

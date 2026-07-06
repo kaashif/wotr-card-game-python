@@ -104,11 +104,28 @@ export interface PathDefinition {
 export interface ActivePath {
   readonly id: string;
   readonly cards: readonly string[];
+  readonly attackTokens: number;
+  readonly defenseTokens: number;
 }
 
 export interface ScoreState {
   readonly free: number;
   readonly shadow: number;
+}
+
+export interface ScoredPath {
+  readonly id: string;
+  readonly points: number;
+  readonly facedown: boolean;
+}
+
+export interface ScoringAreaState {
+  readonly battlegrounds: Readonly<Record<Side, readonly string[]>>;
+  readonly paths: Readonly<Record<Side, readonly ScoredPath[]>>;
+}
+
+export interface CorruptionState {
+  readonly tokens: number;
 }
 
 export interface LogEntry {
@@ -128,6 +145,56 @@ export interface RoundMemory {
 
 export type AttachmentState = Readonly<Record<string, readonly string[]>>;
 
+export type PendingDecision =
+  | {
+      readonly type: "forsake";
+      readonly playerId: PlayerId;
+      readonly reason: string;
+      readonly minimum: number;
+      readonly source?: string;
+    }
+  | {
+      readonly type: "combatLosses";
+      readonly side: Side;
+      readonly locationType: "path" | "battleground";
+      readonly locationId: string;
+      readonly attackToCancel: number;
+      readonly candidates: readonly string[];
+      readonly source?: string;
+    }
+  | {
+      readonly type: "drawPlayCycleRest";
+      readonly playerId: PlayerId;
+      readonly drawnCards: readonly string[];
+      readonly playableCards: readonly string[];
+      readonly maxPlays: number;
+      readonly source?: string;
+    }
+  | {
+      readonly type: "search";
+      readonly playerId: PlayerId;
+      readonly zones: readonly Zone[];
+      readonly choices: readonly string[];
+      readonly source?: string;
+    };
+
+export type GameEvent =
+  | { readonly type: "cardPlayed"; readonly playerId: PlayerId; readonly cardId: string; readonly destination: PlayDestination }
+  | { readonly type: "cardMoved"; readonly playerId: PlayerId; readonly cardId: string; readonly destination: Exclude<PlayDestination, "reserve"> }
+  | { readonly type: "itemAttached"; readonly playerId: PlayerId; readonly itemId: string; readonly wielderId: string }
+  | { readonly type: "cardCycled"; readonly playerId: PlayerId; readonly cardId: string }
+  | { readonly type: "cardEliminated"; readonly playerId: PlayerId; readonly cardId: string }
+  | { readonly type: "cardsDrawn"; readonly playerId: PlayerId; readonly count: number }
+  | { readonly type: "cardForsaken"; readonly playerId: PlayerId; readonly source: ForsakeSource; readonly cardId?: string }
+  | { readonly type: "playerPassed"; readonly playerId: PlayerId }
+  | { readonly type: "ringTokenUsed"; readonly playerId: PlayerId }
+  | { readonly type: "winnowed"; readonly playerId: PlayerId; readonly cards: readonly string[] }
+  | { readonly type: "roundStarted"; readonly round: number; readonly pathId: string | null; readonly battlegroundId: string | null }
+  | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
+  | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
+  | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
+  | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision };
+
 export interface GameState {
   readonly schemaVersion: 1;
   readonly seed: string;
@@ -137,12 +204,17 @@ export interface GameState {
   readonly currentPathNumber: number;
   readonly battlegroundDecks: Readonly<Record<Side, readonly string[]>>;
   readonly pathDeck: readonly string[];
+  readonly activatedPaths: readonly string[];
   readonly activeBattleground: ActiveBattleground | null;
   readonly activePath: ActivePath | null;
   readonly players: Readonly<Record<PlayerId, PlayerState>>;
   readonly cards: Readonly<Record<string, CardInstance>>;
   readonly attachments: AttachmentState;
   readonly roundMemory: RoundMemory;
+  readonly pendingDecisions: readonly PendingDecision[];
+  readonly eventLog: readonly GameEvent[];
+  readonly scoringAreas: ScoringAreaState;
+  readonly corruption: CorruptionState;
   readonly score: ScoreState;
   readonly log: readonly LogEntry[];
   readonly selection: SelectionState;
@@ -171,7 +243,7 @@ export interface RuleViolation {
 }
 
 export type CommandResult =
-  | { readonly ok: true; readonly state: GameState; readonly events: readonly string[] }
+  | { readonly ok: true; readonly state: GameState; readonly events: readonly GameEvent[] }
   | { readonly ok: false; readonly state: GameState; readonly violation: RuleViolation };
 
 export interface GameViewModel {

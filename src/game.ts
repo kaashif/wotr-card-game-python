@@ -13,8 +13,10 @@ import type {
   CommandResult,
   ForsakeSource,
   Faction,
+  GameEvent,
   GameState,
   Phase,
+  PendingDecision,
   PlayDestination,
   PlayerId,
   PlayerState,
@@ -114,12 +116,20 @@ export function createGame(seed = String(Date.now())): GameState {
       ),
     },
     pathDeck: pathDefinitions.map((path) => path.id),
+    activatedPaths: [],
     activeBattleground: null,
     activePath: null,
     players: playerStates,
     cards: instances,
     attachments: {},
     roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
+    pendingDecisions: [],
+    eventLog: [],
+    scoringAreas: {
+      battlegrounds: { free: [], shadow: [] },
+      paths: { free: [], shadow: [] },
+    },
+    corruption: { tokens: 0 },
     score: { free: 0, shadow: 0 },
     log: [],
     selection: { playerId: "frodo", cardId: null },
@@ -186,7 +196,9 @@ export function tryPlayCard(
     });
   }
   const nextState = playCard(state, playerId, instanceId, destination, costCardId);
-  return accepted(nextState, [`played:${instanceId}:${destination}`]);
+  return accepted(nextState, [
+    { type: "cardPlayed", playerId, cardId: instanceId, destination },
+  ]);
 }
 
 export function playCard(
@@ -322,7 +334,9 @@ export function tryAttachItem(
   }
 
   const nextState = attachItem(state, playerId, itemId, wielderId, costCardId);
-  return accepted(nextState, [`attached:${itemId}:${wielderId}`]);
+  return accepted(nextState, [
+    { type: "itemAttached", playerId, itemId, wielderId },
+  ]);
 }
 
 export function attachItem(
@@ -436,7 +450,7 @@ export function tryPass(state: GameState): CommandResult {
       source: "rules:142-145",
     });
   }
-  return accepted(pass(state), [`passed:${playerId}`]);
+  return accepted(pass(state), [{ type: "playerPassed", playerId }]);
 }
 
 export function pass(state: GameState): GameState {
@@ -503,7 +517,7 @@ export function tryMoveFromReserve(
     });
   }
   return accepted(moveFromReserve(state, playerId, instanceId, destination), [
-    `moved:${instanceId}:${destination}`,
+    { type: "cardMoved", playerId, cardId: instanceId, destination },
   ]);
 }
 
@@ -572,7 +586,7 @@ export function tryWinnow(
     });
   }
   return accepted(winnow(state, playerId, firstCardId, secondCardId), [
-    `winnowed:${firstCardId}:${secondCardId}`,
+    { type: "winnowed", playerId, cards: [firstCardId, secondCardId] },
   ]);
 }
 
@@ -604,7 +618,11 @@ export function tryForsake(
       source: "rules:385-395",
     });
   }
-  return accepted(nextState, [`forsook:${source}:${instanceId ?? "top"}`]);
+  return accepted(nextState, [
+    instanceId === undefined
+      ? { type: "cardForsaken", playerId, source }
+      : { type: "cardForsaken", playerId, source, cardId: instanceId },
+  ]);
 }
 
 export function forsakeCard(
@@ -627,6 +645,102 @@ export function forsakeCard(
     return eliminateCards(state, [instanceId]);
   }
   return null;
+}
+
+export function addCorruption(state: GameState, count: number): GameState {
+  if (count <= 0) {
+    return state;
+  }
+  return {
+    ...state,
+    corruption: { tokens: state.corruption.tokens + count },
+    score: { ...state.score, shadow: state.score.shadow + count },
+  };
+}
+
+export function removeCorruption(state: GameState, count: number): GameState {
+  if (count <= 0) {
+    return state;
+  }
+  const removed = Math.min(count, state.corruption.tokens);
+  return {
+    ...state,
+    corruption: { tokens: state.corruption.tokens - removed },
+    score: { ...state.score, shadow: Math.max(0, state.score.shadow - removed) },
+  };
+}
+
+export function addActivePathAttackTokens(state: GameState, count: number): GameState {
+  if (count <= 0 || state.activePath === null) {
+    return state;
+  }
+  return {
+    ...state,
+    activePath: {
+      ...state.activePath,
+      attackTokens: state.activePath.attackTokens + count,
+    },
+  };
+}
+
+export function addActivePathDefenseTokens(state: GameState, count: number): GameState {
+  if (count <= 0 || state.activePath === null) {
+    return state;
+  }
+  return {
+    ...state,
+    activePath: {
+      ...state.activePath,
+      defenseTokens: state.activePath.defenseTokens + count,
+    },
+  };
+}
+
+export function activatePathById(state: GameState, pathId: string): GameState | null {
+  const path = pathById.get(pathId);
+  if (path === undefined || state.activatedPaths.includes(pathId)) {
+    return null;
+  }
+  let nextState = state.activePath === null ? state : scorePath(state, state.activePath);
+  nextState = removeScoredActivePathCards(nextState);
+  return addLog(
+    {
+      ...nextState,
+      activePath: { id: pathId, cards: [], attackTokens: 0, defenseTokens: 0 },
+      pathDeck: nextState.pathDeck.filter((id) => id !== pathId),
+      activatedPaths: [...nextState.activatedPaths, pathId],
+    },
+    `Activated ${path.title}.`,
+  );
+}
+
+export function eligiblePathsByNumber(
+  state: GameState,
+  pathNumber: number,
+): readonly string[] {
+  return pathDefinitions
+    .filter((path) => path.pathNumber === pathNumber)
+    .map((path) => path.id)
+    .filter((pathId) => !state.activatedPaths.includes(pathId));
+}
+
+export function enqueuePendingDecision(
+  state: GameState,
+  decision: PendingDecision,
+): GameState {
+  return {
+    ...state,
+    pendingDecisions: [...state.pendingDecisions, decision],
+    eventLog: [
+      ...state.eventLog,
+      { type: "pendingDecisionCreated", decision },
+    ],
+  };
+}
+
+export function resolveOldestPendingDecision(state: GameState): GameState {
+  const [, ...remaining] = state.pendingDecisions;
+  return { ...state, pendingDecisions: remaining };
 }
 
 export function nextTurn(state: GameState): GameState {
@@ -866,6 +980,8 @@ function startRound(state: GameState): GameState {
       : ({
           id: nextPathId,
           cards: [],
+          attackTokens: 0,
+          defenseTokens: 0,
         } satisfies ActivePath);
 
   const nextPathDeck =
@@ -883,6 +999,10 @@ function startRound(state: GameState): GameState {
         [side]: remainingBattlegrounds,
       },
       pathDeck: nextPathDeck,
+      activatedPaths:
+        nextPathId === null || state.activatedPaths.includes(nextPathId)
+          ? state.activatedPaths
+          : [...state.activatedPaths, nextPathId],
       activeBattleground: nextBattleground,
       activePath: nextPath,
       roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
@@ -932,6 +1052,16 @@ function scoreBattleground(
             ...state.score,
             [winner]: state.score[winner] + definition.victoryPoints,
           },
+          scoringAreas: {
+            ...state.scoringAreas,
+            battlegrounds: {
+              ...state.scoringAreas.battlegrounds,
+              [winner]: uniqueAppend(
+                state.scoringAreas.battlegrounds[winner],
+                definition.id,
+              ),
+            },
+          },
         },
         [...attackingCards, ...defenderLosses],
       ),
@@ -948,10 +1078,10 @@ function scorePath(state: GameState, path: ActivePath): GameState {
   }
   const shadowCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "shadow");
   const freeCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "free");
-  const attack = shadowCards
+  const attack = path.attackTokens + shadowCards
     .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
     .reduce((sum, card) => sum + card.pathIcons, 0);
-  const locationDefense = definition.defenseIcons;
+  const locationDefense = definition.defenseIcons + path.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
   const freeDefense = freeCards
     .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
@@ -961,15 +1091,30 @@ function scorePath(state: GameState, path: ActivePath): GameState {
   const { eliminated: defenderLosses, cycled: defenderSurvivors } =
     assignDefenderLosses(state, freeCards, remainingAttack, "path");
   const points = winner === "free" ? definition.victoryPoints : uncanceledAttack;
+  const corruptionAdded = winner === "shadow" ? uncanceledAttack : 0;
 
   return addLog(
     cycleCards(
       eliminateCards(
         {
           ...state,
+          corruption: {
+            tokens: state.corruption.tokens + corruptionAdded,
+          },
           score: {
             ...state.score,
             [winner]: state.score[winner] + points,
+          },
+          scoringAreas: {
+            ...state.scoringAreas,
+            paths: {
+              ...state.scoringAreas.paths,
+              [winner]: appendScoredPath(state.scoringAreas.paths[winner], {
+                id: definition.id,
+                points,
+                facedown: winner === "shadow",
+              }),
+            },
           },
         },
         [...shadowCards, ...defenderLosses],
@@ -1148,6 +1293,19 @@ function removeFromSharedPlayZones(state: GameState, instanceId: string): GameSt
   };
 }
 
+function removeScoredActivePathCards(state: GameState): GameState {
+  if (state.activePath === null) {
+    return state;
+  }
+  return {
+    ...state,
+    activePath: {
+      ...state.activePath,
+      cards: [],
+    },
+  };
+}
+
 function rememberCharacterOrItemPlayed(state: GameState, cardId: string): GameState {
   if (state.roundMemory.playedCharacterOrItemCards.includes(cardId)) {
     return state;
@@ -1225,12 +1383,19 @@ function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation
   return null;
 }
 
-function accepted(state: GameState, events: readonly string[]): CommandResult {
-  return { ok: true, state, events };
+function accepted(state: GameState, events: readonly GameEvent[]): CommandResult {
+  return { ok: true, state: appendEvents(state, events), events };
 }
 
 function rejected(state: GameState, violation: RuleViolation): CommandResult {
   return { ok: false, state, violation };
+}
+
+function appendEvents(state: GameState, events: readonly GameEvent[]): GameState {
+  if (events.length === 0) {
+    return state;
+  }
+  return { ...state, eventLog: [...state.eventLog, ...events] };
 }
 
 function normalizeName(value: string): string {
@@ -1347,6 +1512,17 @@ function removeOne(items: readonly string[], item: string): readonly string[] {
     return items;
   }
   return [...items.slice(0, index), ...items.slice(index + 1)];
+}
+
+function uniqueAppend(items: readonly string[], item: string): readonly string[] {
+  return items.includes(item) ? items : [...items, item];
+}
+
+function appendScoredPath(
+  paths: GameState["scoringAreas"]["paths"][Side],
+  path: GameState["scoringAreas"]["paths"][Side][number],
+): GameState["scoringAreas"]["paths"][Side] {
+  return paths.some((existing) => existing.id === path.id) ? paths : [...paths, path];
 }
 
 function nextPlayerId(playerId: PlayerId): PlayerId {
