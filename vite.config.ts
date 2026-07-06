@@ -1,5 +1,8 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   base: "/wotr-card-game-python/",
+  test: {
+    exclude: ["tests/e2e/**", "node_modules/**", "dist/**"],
+  },
 });
