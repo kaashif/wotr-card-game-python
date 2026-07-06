@@ -419,7 +419,7 @@ export function canPlayTo(
   const card = getCard(state, instanceId);
   const cardDef = getCardDefinition(card.cardId);
   if (destination === "reserve") {
-    return cardDef.type === "army" || cardDef.type === "character";
+    return cardDef.type === "army" || cardDef.type === "character" || cardDef.type === "item";
   }
   if (destination === "battleground") {
     const battleground = state.activeBattleground;
