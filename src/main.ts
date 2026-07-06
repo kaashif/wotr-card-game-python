@@ -1,274 +1,58 @@
 import "./styles.css";
+import { players, turnOrder } from "./data";
+import {
+  canMoveTo,
+  canPlayTo,
+  createGame,
+  cycleSelected,
+  discardOversizedHands,
+  getBattlegroundDefinition,
+  getCard,
+  getCardDefinition,
+  getPathDefinition,
+  moveFromReserve,
+  nextTurn,
+  pass,
+  phaseLabel,
+  playSelected,
+  resolveCombat,
+  selectCard,
+  selectPlayer,
+  useRingToken,
+} from "./game";
+import { clearSavedGame, loadGame, saveGame } from "./storage";
+import type {
+  CardDefinition,
+  CardType,
+  GameState,
+  PlayDestination,
+  PlayerId,
+  Side,
+} from "./types";
 
 type Seat = "north" | "east" | "south" | "west";
-type Side = "free" | "shadow";
-type CardKind = "army" | "character" | "event" | "item";
-type CardZone = "hand" | "reserve" | "battle" | "path";
+type CardContext = "hand" | "table";
+type RealCardView = {
+  readonly instanceId: string;
+  readonly ownerId: PlayerId;
+  readonly definition: CardDefinition;
+};
 
-interface PlayerMock {
-  readonly id: string;
-  readonly name: string;
-  readonly seat: Seat;
-  readonly side: Side;
-  readonly handCount: number;
-  readonly deckCount: number;
-  readonly cycleCount: number;
-  readonly eliminatedCount: number;
-}
-
-interface CardMock {
-  readonly id: string;
-  readonly ownerId: string;
-  readonly title: string;
-  readonly faction: string;
-  readonly kind: CardKind;
-  readonly zone: CardZone;
-  readonly art: string;
-  readonly strength: string;
-  readonly text: string;
-}
-
-interface LogEntry {
-  readonly id: number;
-  readonly text: string;
-}
-
-interface UiState {
-  activePlayerId: string;
-  selectedCardId: string;
-  combatPulse: number;
-  log: readonly LogEntry[];
-}
-
-const players: readonly PlayerMock[] = [
-  {
-    id: "frodo",
-    name: "Frodo",
-    seat: "south",
-    side: "free",
-    handCount: 6,
-    deckCount: 18,
-    cycleCount: 4,
-    eliminatedCount: 1,
-  },
-  {
-    id: "witchKing",
-    name: "Witch-king",
-    seat: "west",
-    side: "shadow",
-    handCount: 5,
-    deckCount: 21,
-    cycleCount: 3,
-    eliminatedCount: 2,
-  },
-  {
-    id: "aragorn",
-    name: "Aragorn",
-    seat: "north",
-    side: "free",
-    handCount: 5,
-    deckCount: 16,
-    cycleCount: 6,
-    eliminatedCount: 0,
-  },
-  {
-    id: "saruman",
-    name: "Saruman",
-    seat: "east",
-    side: "shadow",
-    handCount: 7,
-    deckCount: 23,
-    cycleCount: 2,
-    eliminatedCount: 1,
-  },
-];
-
-const cards: readonly CardMock[] = [
-  {
-    id: "sting",
-    ownerId: "frodo",
-    title: "Sting",
-    faction: "Hobbit",
-    kind: "item",
-    zone: "hand",
-    art: "blade",
-    strength: "+1",
-    text: "If the wielder is on a path with a Monstrous Character then add 1 Defense token to the active path.",
-  },
-  {
-    id: "samwise",
-    ownerId: "frodo",
-    title: "Samwise the Brave",
-    faction: "Hobbit",
-    kind: "character",
-    zone: "hand",
-    art: "shire",
-    strength: "2",
-    text: "If eliminated in path combat, cycle instead along with any wielded items.",
-  },
-  {
-    id: "mithril",
-    ownerId: "frodo",
-    title: "Mithril Coat",
-    faction: "Dwarf",
-    kind: "item",
-    zone: "hand",
-    art: "mail",
-    strength: "+2",
-    text: "No rules text. Adds 2 path icons while wielded by Frodo or Sam.",
-  },
-  {
-    id: "gandalf",
-    ownerId: "frodo",
-    title: "Gandalf the White",
-    faction: "Wizard",
-    kind: "character",
-    zone: "reserve",
-    art: "wizard",
-    strength: "3",
-    text: "When played remove GtG from the game; while in reserve draw +1 card in each Draw step. If forsaken from top of the draw deck, cycle instead.",
-  },
-  {
-    id: "anduril",
-    ownerId: "aragorn",
-    title: "Anduril",
-    faction: "Dunedain",
-    kind: "item",
-    zone: "hand",
-    art: "sword",
-    strength: "+3",
-    text: "No rules text. Item wielded by Strider or Aragorn with 1 attack icon, 1 defense icon, and 1 path icon.",
-  },
-  {
-    id: "legolas",
-    ownerId: "aragorn",
-    title: "Legolas",
-    faction: "Elf",
-    kind: "character",
-    zone: "hand",
-    art: "forest",
-    strength: "3",
-    text: "When played you may take the Bow of Galadhrim from your draw deck into hand.",
-  },
-  {
-    id: "elrond",
-    ownerId: "aragorn",
-    title: "Elrond",
-    faction: "Elf",
-    kind: "character",
-    zone: "reserve",
-    art: "council",
-    strength: "3",
-    text: "When played draw 1 card. While in reserve increase your carryover limit by 1.",
-  },
-  {
-    id: "mordor-host",
-    ownerId: "witchKing",
-    title: "Mordor Orcs",
-    faction: "Mordor",
-    kind: "army",
-    zone: "hand",
-    art: "mordor",
-    strength: "4",
-    text: "No rules text. Mordor army card with 1 attack icon and 1 defense icon.",
-  },
-  {
-    id: "black-captain",
-    ownerId: "witchKing",
-    title: "The Black Captain",
-    faction: "Mordor",
-    kind: "event",
-    zone: "hand",
-    art: "wraith",
-    strength: "3",
-    text: "If the Witch-King is in reserve (active or not), (re)activate any Mordor battleground, then you MAY move the Witch-King to this battleground.",
-  },
-  {
-    id: "fell-beast",
-    ownerId: "witchKing",
-    title: "Fell Beast",
-    faction: "Mordor",
-    kind: "item",
-    zone: "battle",
-    art: "beast",
-    strength: "2",
-    text: "When played on a Nazgul in reserve (active or not), you may immediately move them to a battleground.",
-  },
-  {
-    id: "orthanc",
-    ownerId: "saruman",
-    title: "Palantir",
-    faction: "Isengard",
-    kind: "event",
-    zone: "hand",
-    art: "tower",
-    strength: "E",
-    text: "If Saruman is in reserve (active or not), (re)activate any Isengard battleground of your choice, then you MAY move Saruman to that battleground.",
-  },
-  {
-    id: "uruk-hai",
-    ownerId: "saruman",
-    title: "Fighting Uruk-Hai",
-    faction: "Isengard",
-    kind: "army",
-    zone: "hand",
-    art: "uruk",
-    strength: "3",
-    text: "No rules text. Isengard army with battleground attack and defense icons.",
-  },
-  {
-    id: "southron",
-    ownerId: "saruman",
-    title: "The Black Serpent",
-    faction: "Southron",
-    kind: "character",
-    zone: "path",
-    art: "desert",
-    strength: "E",
-    text: "If in reserve you may use your action and eliminate this card to reactivate any Southron battleground.",
-  },
-  {
-    id: "gimli",
-    ownerId: "frodo",
-    title: "Gimli",
-    faction: "Dwarf",
-    kind: "character",
-    zone: "battle",
-    art: "axe",
-    strength: "3",
-    text: "When played you may take \"Dwarevn Axe\" from your cycle pile into your hand.",
-  },
-  {
-    id: "gollum",
-    ownerId: "saruman",
-    title: "Gollum",
-    faction: "Monstrous",
-    kind: "character",
-    zone: "path",
-    art: "cavern",
-    strength: "E",
-    text: "If on a path you may use your action to activate a different path of the same #. If Gollum is eliminated in path combat, cycle instead.",
-  },
-];
-
-let state: UiState = {
-  activePlayerId: "frodo",
-  selectedCardId: "sting",
-  combatPulse: 0,
-  log: [
-    { id: 5, text: "Fell Beast committed to Minas Tirith." },
-    { id: 4, text: "Gimli answered the battleground call." },
-    { id: 3, text: "Southron Ambush moved onto the path." },
-    { id: 2, text: "Frodo held Mithril Coat in reserve range." },
-    { id: 1, text: "Round 3 action phase began from seed table-demo." },
-  ],
+const playerSeats: Readonly<Record<PlayerId, Seat>> = {
+  frodo: "south",
+  witchKing: "west",
+  aragorn: "north",
+  saruman: "east",
 };
 
 const root = document.querySelector<HTMLDivElement>("#app");
 if (root === null) {
   throw new Error("Missing #app root");
 }
+
 const appRoot = root;
+let state = loadGame() ?? createGame("middle-earth");
+let combatPulse = 0;
 let zoomTimer: number | null = null;
 let zoomPreview: HTMLElement | null = null;
 
@@ -290,9 +74,9 @@ appRoot.addEventListener("pointerover", (event) => {
   }
 
   clearZoomTimer();
-  const cardId = cardButton.dataset["cardId"] ?? null;
+  const instanceId = cardButton.dataset["cardId"] ?? null;
   zoomTimer = window.setTimeout(() => {
-    showZoomPreview(cardId);
+    showZoomPreview(instanceId);
   }, 650);
 });
 
@@ -325,25 +109,21 @@ appRoot.addEventListener("click", (event) => {
 
   const playerButton = target.closest<HTMLButtonElement>("[data-player-id]");
   if (playerButton !== null) {
-    state = {
-      ...state,
-      activePlayerId: playerButton.dataset["playerId"] ?? state.activePlayerId,
-    };
-    render();
+    const playerId = playerButton.dataset["playerId"];
+    if (isPlayerId(playerId)) {
+      commit(selectPlayer(state, playerId));
+    }
     return;
   }
 
   const cardButton = target.closest<HTMLButtonElement>("[data-card-id]");
   if (cardButton !== null) {
-    const cardId = cardButton.dataset["cardId"] ?? state.selectedCardId;
-    const card = cards.find((candidate) => candidate.id === cardId);
-    state = {
-      ...state,
-      selectedCardId: cardId,
-      activePlayerId: card?.ownerId ?? state.activePlayerId,
-    };
+    const instanceId = cardButton.dataset["cardId"] ?? null;
+    const ownerId = instanceId === null ? null : ownerForCard(state, instanceId);
+    let nextState = ownerId === null ? state : selectPlayer(state, ownerId);
+    nextState = selectCard(nextState, instanceId);
     hideZoomPreview();
-    render();
+    commit(nextState, false);
     return;
   }
 
@@ -352,78 +132,125 @@ appRoot.addEventListener("click", (event) => {
     return;
   }
 
-  const action = actionButton.dataset["action"] ?? "";
-  state = {
-    ...state,
-    combatPulse: state.combatPulse + 1,
-    log: [
-      {
-        id: Date.now(),
-        text: actionLog(action, selectedCard().title),
-      },
-      ...state.log.slice(0, 9),
-    ],
-  };
-  render();
+  runAction(actionButton.dataset["action"] ?? "");
 });
 
 render();
 
+function runAction(action: string): void {
+  switch (action) {
+    case "new": {
+      const seed = window.prompt("Seed", state.seed);
+      if (seed !== null) {
+        clearSavedGame();
+        combatPulse = 0;
+        commit(createGame(seed));
+      }
+      return;
+    }
+    case "play":
+      commit(playOrMoveSelected());
+      return;
+    case "reserve":
+      commit(playReserveSelected());
+      return;
+    case "cycle":
+      commit(cycleSelected(state));
+      return;
+    case "ring":
+      commit(useRingToken(state));
+      return;
+    case "pass":
+      commit(pass(state));
+      return;
+    case "resolve":
+      combatPulse += 1;
+      commit(resolveCombat(state));
+      return;
+    default:
+      return;
+  }
+}
+
+function playOrMoveSelected(): GameState {
+  const instanceId = state.selection.cardId;
+  const playerId = state.selection.playerId;
+  if (instanceId === null) {
+    return state;
+  }
+  const player = state.players[playerId];
+  if (player.reserve.includes(instanceId)) {
+    const destination = bestMoveDestination(state, playerId, instanceId);
+    return destination === null
+      ? state
+      : nextTurn(moveFromReserve(state, playerId, instanceId, destination));
+  }
+  const destination = bestPlayDestination(state, playerId, instanceId);
+  return destination === null
+    ? state
+    : nextTurn(playSelected(state, destination));
+}
+
+function playReserveSelected(): GameState {
+  const instanceId = state.selection.cardId;
+  const playerId = state.selection.playerId;
+  if (
+    instanceId === null ||
+    !state.players[playerId].hand.includes(instanceId) ||
+    !canPlayTo(state, playerId, instanceId, "reserve")
+  ) {
+    return state;
+  }
+  return nextTurn(playSelected(state, "reserve"));
+}
+
+function commit(nextState: GameState, shouldSave = true): void {
+  state = discardOversizedHands(nextState);
+  if (shouldSave) {
+    saveGame(state);
+  }
+  render();
+}
+
 function render(): void {
+  const selected = selectedCard();
   appRoot.innerHTML = `
-    <main class="game-shell" aria-label="War of the Ring table mockup">
+    <main class="game-shell" aria-label="War of the Ring table">
       <header class="hud">
         <section class="identity" aria-label="Game">
           <span class="sigil" aria-hidden="true">W</span>
           <div>
             <h1>War of the Ring</h1>
-            <p>Round 3 - action phase - seed table-demo</p>
+            <p>Round ${state.round} - ${phaseLabel(state.phase)} - seed ${escapeHtml(state.seed)}</p>
           </div>
         </section>
         <section class="score-track" aria-label="Score">
-          <div><span>Free Peoples</span><strong>7</strong></div>
-          <div><span>Shadow</span><strong>6</strong></div>
-          <div><span>Burden</span><strong>2</strong></div>
+          <div><span>Free Peoples</span><strong>${state.score.free}</strong></div>
+          <div><span>Shadow</span><strong>${state.score.shadow}</strong></div>
+          <div><span>Burden</span><strong>${state.corruption.tokens}</strong></div>
         </section>
-        <nav class="actions" aria-label="Mock actions">
-          <button type="button" data-action="play">Play</button>
-          <button type="button" data-action="reserve">Reserve</button>
-          <button type="button" data-action="cycle">Cycle</button>
+        <nav class="actions" aria-label="Game actions">
+          <button type="button" data-action="new">New</button>
+          <button type="button" data-action="play" ${canPlayOrMoveSelected() ? "" : "disabled"}>Play</button>
+          <button type="button" data-action="reserve" ${canReserveSelected() ? "" : "disabled"}>Reserve</button>
+          <button type="button" data-action="cycle" ${canCycleSelected() ? "" : "disabled"}>Cycle</button>
+          <button type="button" data-action="ring">Ring</button>
+          <button type="button" data-action="pass">Pass</button>
           <button type="button" data-action="resolve">Resolve</button>
         </nav>
       </header>
 
       <section class="table-layout">
         <section class="table-stage" aria-label="Four player table">
-          ${players.map((player) => playerSeat(player)).join("")}
-          <section class="felt-table ${state.combatPulse % 2 === 0 ? "" : "pulse"}" aria-label="Play area">
+          ${turnOrder.map((playerId) => playerSeat(playerId)).join("")}
+          <section class="felt-table ${combatPulse % 2 === 0 ? "" : "pulse"}" aria-label="Play area">
             <div class="table-rim" aria-hidden="true"></div>
-            <div class="center-zone battleground-zone">
-              <div class="zone-title">
-                <span>Battleground</span>
-                <strong>Minas Tirith</strong>
-                <small>Defense 3 - VP 3</small>
-                <p>Dunedain player MAY forsake 1 card to draw 3 cards.</p>
-              </div>
-              <div class="lane">
-                ${cardsInZone("battle").map((card) => cardView(card, "table")).join("")}
-              </div>
-            </div>
-            <div class="center-zone path-zone">
-              <div class="zone-title">
-                <span>Path</span>
-                <strong>Cirith Ungol</strong>
-                <small>Path 8 - VP 2</small>
-                <p>The Mordor player draws 5 cards, may play 1 Army and cycles rest.</p>
-              </div>
-              <div class="lane">
-                ${cardsInZone("path").map((card) => cardView(card, "table")).join("")}
-              </div>
-            </div>
+            ${battlegroundZone()}
+            ${pathZone()}
             <div class="table-piles" aria-label="Shared piles">
-              ${pile("Free battlegrounds", 5, "free")}
-              ${pile("Shadow battlegrounds", 6, "shadow")}
-              ${pile("Path deck", 3, "path")}
+              ${pile("Free battlegrounds", state.battlegroundDecks.free.length, "free")}
+              ${pile("Shadow battlegrounds", state.battlegroundDecks.shadow.length, "shadow")}
+              ${pile("Path deck", state.pathDeck.length, "path")}
             </div>
           </section>
         </section>
@@ -434,11 +261,15 @@ function render(): void {
             <strong>${state.log.length}</strong>
           </div>
           <ol>
-            ${state.log.map((entry) => `<li>${escapeHtml(entry.text)}</li>`).join("")}
+            ${state.log
+              .slice()
+              .reverse()
+              .map((entry) => `<li>${escapeHtml(entry.message)}</li>`)
+              .join("")}
           </ol>
           <section class="selection">
             <span>Selected</span>
-            ${cardInspector(selectedCard())}
+            ${selected === null ? `<p class="empty-selection">No card selected</p>` : cardInspector(selected)}
           </section>
         </aside>
       </section>
@@ -446,79 +277,157 @@ function render(): void {
   `;
 }
 
-function playerSeat(player: PlayerMock): string {
-  const active = player.id === state.activePlayerId ? " active" : "";
-  const handCards = cards.filter(
-    (card) => card.ownerId === player.id && card.zone === "hand",
-  );
+function playerSeat(playerId: PlayerId): string {
+  const player = state.players[playerId];
+  const definition = players[playerId];
+  const active = state.activePlayer === playerId ? " active" : "";
+  const handCards = player.hand.map((instanceId) => cardViewModel(instanceId));
+  const reserveCards = player.reserve.map((instanceId) => cardViewModel(instanceId));
   return `
-    <section class="seat seat-${player.seat}${active}" aria-label="${escapeHtml(player.name)} seat">
-      <button class="player-chip" type="button" data-player-id="${player.id}">
-        <span>${escapeHtml(player.name)}</span>
-        <small>${player.side === "free" ? "Free Peoples" : "Shadow"} - ${player.handCount} cards</small>
+    <section class="seat seat-${playerSeats[playerId]}${active}" aria-label="${escapeHtml(definition.name)} seat">
+      <button class="player-chip" type="button" data-player-id="${playerId}">
+        <span>${escapeHtml(definition.name)}</span>
+        <small>${definition.side === "free" ? "Free Peoples" : "Shadow"} - ${player.hand.length} cards</small>
       </button>
       <div class="hand-fan" style="--cards: ${handCards.length}">
         ${handCards.map((card, index) => cardView(card, "hand", index)).join("")}
       </div>
-      <div class="personal-piles" aria-label="${escapeHtml(player.name)} piles">
-        ${pile("Draw", player.deckCount, player.side)}
-        ${pile("Cycle", player.cycleCount, "neutral")}
-        ${pile("Eliminated", player.eliminatedCount, "spent")}
+      ${
+        reserveCards.length === 0
+          ? ""
+          : `<div class="reserve-strip" aria-label="${escapeHtml(definition.name)} reserve">${reserveCards
+              .map((card, index) => cardView(card, "table", index))
+              .join("")}</div>`
+      }
+      <div class="personal-piles" aria-label="${escapeHtml(definition.name)} piles">
+        ${pile("Draw", player.draw.length, definition.side)}
+        ${pile("Cycle", player.cycle.length, "neutral")}
+        ${pile("Eliminated", player.eliminated.length, "spent")}
       </div>
     </section>
   `;
 }
 
-function cardView(card: CardMock, context: "hand" | "table", index = 0): string {
-  const selected = card.id === state.selectedCardId ? " selected" : "";
+function battlegroundZone(): string {
+  const active = state.activeBattleground;
+  if (active === null) {
+    return `
+      <div class="center-zone battleground-zone">
+        <div class="zone-title">
+          <span>Battleground</span>
+          <strong>No battleground</strong>
+          <small>Waiting for round setup</small>
+        </div>
+        <div class="lane"></div>
+      </div>
+    `;
+  }
+  const definition = getBattlegroundDefinition(active.id);
+  const title = definition?.title ?? "Unknown battleground";
+  const defense = definition?.defenseIcons ?? active.defenseTokens;
+  const victoryPoints = definition?.victoryPoints ?? 0;
+  const text = definition?.text ?? "No location text.";
+  return `
+    <div class="center-zone battleground-zone">
+      <div class="zone-title">
+        <span>Battleground</span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>Defense ${defense} - VP ${victoryPoints}</small>
+        <p>${escapeHtml(text || "No location text.")}</p>
+      </div>
+      <div class="lane">
+        ${active.cards.map((instanceId) => cardView(cardViewModel(instanceId), "table")).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function pathZone(): string {
+  const active = state.activePath;
+  if (active === null) {
+    return `
+      <div class="center-zone path-zone">
+        <div class="zone-title">
+          <span>Path</span>
+          <strong>No path</strong>
+          <small>Waiting for round setup</small>
+        </div>
+        <div class="lane"></div>
+      </div>
+    `;
+  }
+  const definition = getPathDefinition(active.id);
+  const title = definition?.title ?? "Unknown path";
+  const pathNumber = definition?.pathNumber ?? state.currentPathNumber;
+  const victoryPoints = definition?.victoryPoints ?? 0;
+  const text = definition?.text ?? "No path text.";
+  return `
+    <div class="center-zone path-zone">
+      <div class="zone-title">
+        <span>Path</span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>Path ${pathNumber} - VP ${victoryPoints} - Attack ${active.attackTokens} / Defense ${active.defenseTokens}</small>
+        <p>${escapeHtml(text || "No path text.")}</p>
+      </div>
+      <div class="lane">
+        ${active.cards.map((instanceId) => cardView(cardViewModel(instanceId), "table")).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function cardView(card: RealCardView, context: CardContext, index = 0): string {
+  const selected = card.instanceId === state.selection.cardId ? " selected" : "";
+  const strength = strengthText(card.definition);
+  const art = artKey(card.definition);
   return `
     <button
       class="game-card ${context}${selected}"
       type="button"
-      data-card-id="${card.id}"
-      style="--i: ${index}; --tone: ${toneFor(card.title)}"
-      aria-pressed="${card.id === state.selectedCardId ? "true" : "false"}"
+      data-card-id="${card.instanceId}"
+      style="--i: ${index}; --tone: ${toneFor(card.definition.title)}"
+      aria-pressed="${card.instanceId === state.selection.cardId ? "true" : "false"}"
     >
-      <span class="card-kind">${escapeHtml(card.kind)}</span>
-      <strong>${escapeHtml(card.title)}</strong>
-      <span class="card-art art-${card.art}" aria-hidden="true">
+      <span class="card-kind">${escapeHtml(card.definition.type)}</span>
+      <strong>${escapeHtml(card.definition.title)}</strong>
+      <span class="card-art art-${art}" aria-hidden="true">
         <i></i><b></b><em></em>
       </span>
       <span class="card-meta">
-        <small>${escapeHtml(card.faction)}</small>
-        <mark>${escapeHtml(card.strength)}</mark>
+        <small>${escapeHtml(card.definition.faction)}</small>
+        <mark>${escapeHtml(strength)}</mark>
       </span>
-      <p>${escapeHtml(card.text)}</p>
+      <p>${escapeHtml(card.definition.text || "No rules text.")}</p>
     </button>
   `;
 }
 
-function cardInspector(card: CardMock): string {
+function cardInspector(card: RealCardView): string {
   return `
     <article class="inspector-card">
-      <div class="mini-art art-${card.art}" aria-hidden="true"><i></i><b></b><em></em></div>
+      <div class="mini-art art-${artKey(card.definition)}" aria-hidden="true"><i></i><b></b><em></em></div>
       <div>
-        <strong>${escapeHtml(card.title)}</strong>
-        <p>${escapeHtml(card.faction)} ${escapeHtml(card.kind)} - ${escapeHtml(card.text)}</p>
+        <strong>${escapeHtml(card.definition.title)}</strong>
+        <p>${escapeHtml(card.definition.faction)} ${escapeHtml(card.definition.type)} - ${escapeHtml(card.definition.text || "No rules text.")}</p>
       </div>
     </article>
   `;
 }
 
-function zoomCard(card: CardMock): string {
+function zoomCard(card: RealCardView): string {
   return `
     <aside class="zoom-preview" aria-live="polite" aria-label="Card preview">
-      <article class="zoom-card" style="--tone: ${toneFor(card.title)}">
-        <span class="card-kind">${escapeHtml(card.kind)}</span>
-        <strong>${escapeHtml(card.title)}</strong>
-        <span class="card-art art-${card.art}" aria-hidden="true">
+      <article class="zoom-card" style="--tone: ${toneFor(card.definition.title)}">
+        <span class="card-kind">${escapeHtml(card.definition.type)}</span>
+        <strong>${escapeHtml(card.definition.title)}</strong>
+        <span class="card-art art-${artKey(card.definition)}" aria-hidden="true">
           <i></i><b></b><em></em>
         </span>
         <span class="card-meta">
-          <small>${escapeHtml(card.faction)}</small>
-          <mark>${escapeHtml(card.strength)}</mark>
+          <small>${escapeHtml(card.definition.faction)}</small>
+          <mark>${escapeHtml(strengthText(card.definition))}</mark>
         </span>
-        <p>${escapeHtml(card.text)}</p>
+        <p>${escapeHtml(card.definition.text || "No rules text.")}</p>
       </article>
     </aside>
   `;
@@ -534,30 +443,25 @@ function pile(label: string, count: number, tone: string): string {
   `;
 }
 
-function cardsInZone(zone: CardZone): readonly CardMock[] {
-  return cards.filter((card) => card.zone === zone);
+function selectedCard(): RealCardView | null {
+  const selected = state.selection.cardId;
+  return selected === null ? null : cardViewModel(selected);
 }
 
-function selectedCard(): CardMock {
-  const fallback = cards[0];
-  if (fallback === undefined) {
-    throw new Error("Mock UI requires at least one card");
+function cardViewModel(instanceId: string): RealCardView {
+  const instance = getCard(state, instanceId);
+  return {
+    instanceId,
+    ownerId: ownerForCard(state, instanceId) ?? getCardDefinition(instance.cardId).owner,
+    definition: getCardDefinition(instance.cardId),
+  };
+}
+
+function showZoomPreview(instanceId: string | null): void {
+  const card = instanceId === null ? selectedCard() : cardViewModel(instanceId);
+  if (card === null) {
+    return;
   }
-  return cards.find((card) => card.id === state.selectedCardId) ?? fallback;
-}
-
-function clearZoomTimer(): void {
-  if (zoomTimer !== null) {
-    window.clearTimeout(zoomTimer);
-    zoomTimer = null;
-  }
-}
-
-function showZoomPreview(cardId: string | null): void {
-  const card =
-    cardId === null
-      ? selectedCard()
-      : cards.find((candidate) => candidate.id === cardId) ?? selectedCard();
   hideZoomPreview();
   const container = document.createElement("div");
   container.innerHTML = zoomCard(card).trim();
@@ -573,19 +477,155 @@ function hideZoomPreview(): void {
   zoomPreview = null;
 }
 
-function actionLog(action: string, title: string): string {
-  switch (action) {
-    case "play":
-      return `${title} slides from hand toward the active table zone.`;
-    case "reserve":
-      return `${title} is staged in reserve for a later window.`;
-    case "cycle":
-      return `${title} cycles with a new card drawn from the pile.`;
-    case "resolve":
-      return `Combat resolves at Minas Tirith; committed cards pulse on the felt.`;
-    default:
-      return `${title} was inspected.`;
+function clearZoomTimer(): void {
+  if (zoomTimer !== null) {
+    window.clearTimeout(zoomTimer);
+    zoomTimer = null;
   }
+}
+
+function canPlayOrMoveSelected(): boolean {
+  const instanceId = state.selection.cardId;
+  const playerId = state.selection.playerId;
+  if (instanceId === null) {
+    return false;
+  }
+  if (state.players[playerId].reserve.includes(instanceId)) {
+    return bestMoveDestination(state, playerId, instanceId) !== null;
+  }
+  return bestPlayDestination(state, playerId, instanceId) !== null;
+}
+
+function canReserveSelected(): boolean {
+  const instanceId = state.selection.cardId;
+  const playerId = state.selection.playerId;
+  return (
+    instanceId !== null &&
+    state.players[playerId].hand.includes(instanceId) &&
+    canPlayTo(state, playerId, instanceId, "reserve")
+  );
+}
+
+function canCycleSelected(): boolean {
+  const instanceId = state.selection.cardId;
+  return instanceId !== null && state.players[state.selection.playerId].hand.includes(instanceId);
+}
+
+function bestPlayDestination(
+  gameState: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+): PlayDestination | null {
+  if (canPlayTo(gameState, playerId, instanceId, "battleground")) {
+    return "battleground";
+  }
+  if (canPlayTo(gameState, playerId, instanceId, "path")) {
+    return "path";
+  }
+  if (canPlayTo(gameState, playerId, instanceId, "reserve")) {
+    return "reserve";
+  }
+  return null;
+}
+
+function bestMoveDestination(
+  gameState: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+): Exclude<PlayDestination, "reserve"> | null {
+  if (canMoveTo(gameState, playerId, instanceId, "battleground")) {
+    return "battleground";
+  }
+  if (canMoveTo(gameState, playerId, instanceId, "path")) {
+    return "path";
+  }
+  return null;
+}
+
+function ownerForCard(gameState: GameState, instanceId: string): PlayerId | null {
+  for (const playerId of turnOrder) {
+    const player = gameState.players[playerId];
+    if (
+      player.hand.includes(instanceId) ||
+      player.reserve.includes(instanceId) ||
+      player.draw.includes(instanceId) ||
+      player.cycle.includes(instanceId) ||
+      player.eliminated.includes(instanceId)
+    ) {
+      return playerId;
+    }
+  }
+  const definition = getCardDefinition(getCard(gameState, instanceId).cardId);
+  return definition.owner;
+}
+
+function strengthText(card: CardDefinition): string {
+  if (card.type === "event") {
+    return "E";
+  }
+  const attack = card.battlegroundAttack + card.leadershipAttack;
+  const defense = card.battlegroundDefense + card.leadershipDefense;
+  if (attack === 0 && defense === 0 && card.pathIcons > 0) {
+    return `P${card.pathIcons}`;
+  }
+  if (attack === defense) {
+    return String(attack);
+  }
+  return `${attack}/${defense}`;
+}
+
+function artKey(card: CardDefinition): string {
+  if (card.type === "item") {
+    return itemArt(card.title);
+  }
+  if (card.type === "army") {
+    return card.faction === "isengard" ? "uruk" : card.faction;
+  }
+  if (card.faction === "elf") {
+    return "forest";
+  }
+  if (card.faction === "hobbit") {
+    return "shire";
+  }
+  if (card.faction === "wizard") {
+    return "wizard";
+  }
+  if (card.faction === "dwarf") {
+    return "axe";
+  }
+  if (card.faction === "mordor") {
+    return "wraith";
+  }
+  if (card.faction === "monstrous") {
+    return "beast";
+  }
+  if (card.faction === "southron") {
+    return "desert";
+  }
+  return "council";
+}
+
+function itemArt(title: string): string {
+  const lower = title.toLowerCase();
+  if (lower.includes("coat") || lower.includes("mail")) {
+    return "mail";
+  }
+  if (lower.includes("axe")) {
+    return "axe";
+  }
+  if (lower.includes("staff") || lower.includes("palantir")) {
+    return "tower";
+  }
+  return "sword";
+}
+
+function isPlayerId(value: string | undefined): value is PlayerId {
+  return (
+    value === "frodo" ||
+    value === "aragorn" ||
+    value === "witchKing" ||
+    value === "saruman"
+  );
 }
 
 function toneFor(value: string): string {
