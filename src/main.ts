@@ -36,6 +36,7 @@ interface LogEntry {
 interface UiState {
   activePlayerId: string;
   selectedCardId: string;
+  zoomCardId: string | null;
   combatPulse: number;
   log: readonly LogEntry[];
 }
@@ -93,7 +94,7 @@ const cards: readonly CardMock[] = [
     zone: "hand",
     art: "blade",
     strength: "+1",
-    text: "Ready beside the Ring-bearer, glowing blue at the edge of danger.",
+    text: "If the wielder is on a path with a Monstrous Character then add 1 Defense token to the active path.",
   },
   {
     id: "samwise",
@@ -104,7 +105,7 @@ const cards: readonly CardMock[] = [
     zone: "hand",
     art: "shire",
     strength: "2",
-    text: "A steady companion card staged for the path.",
+    text: "If eliminated in path combat, cycle instead along with any wielded items.",
   },
   {
     id: "mithril",
@@ -115,18 +116,18 @@ const cards: readonly CardMock[] = [
     zone: "hand",
     art: "mail",
     strength: "+2",
-    text: "Reserve item with a bright defensive sheen.",
+    text: "No rules text. Adds 2 path icons while wielded by Frodo or Sam.",
   },
   {
     id: "gandalf",
     ownerId: "frodo",
-    title: "Gandalf Returns",
+    title: "Gandalf the White",
     faction: "Wizard",
-    kind: "event",
+    kind: "character",
     zone: "reserve",
     art: "wizard",
-    strength: "E",
-    text: "A held event, waiting for the right action window.",
+    strength: "3",
+    text: "When played remove GtG from the game; while in reserve draw +1 card in each Draw step. If forsaken from top of the draw deck, cycle instead.",
   },
   {
     id: "anduril",
@@ -137,7 +138,7 @@ const cards: readonly CardMock[] = [
     zone: "hand",
     art: "sword",
     strength: "+3",
-    text: "A banner-bright blade for a decisive battleground.",
+    text: "No rules text. Item wielded by Strider or Aragorn with 1 attack icon, 1 defense icon, and 1 path icon.",
   },
   {
     id: "legolas",
@@ -148,112 +149,113 @@ const cards: readonly CardMock[] = [
     zone: "hand",
     art: "forest",
     strength: "3",
-    text: "Ranged pressure across the table center.",
+    text: "When played you may take the Bow of Galadhrim from your draw deck into hand.",
   },
   {
     id: "elrond",
     ownerId: "aragorn",
-    title: "Elrond's Counsel",
+    title: "Elrond",
     faction: "Elf",
-    kind: "event",
+    kind: "character",
     zone: "reserve",
     art: "council",
-    strength: "E",
-    text: "A reserve tactic marked with a silver icon.",
+    strength: "3",
+    text: "When played draw 1 card. While in reserve increase your carryover limit by 1.",
   },
   {
     id: "mordor-host",
     ownerId: "witchKing",
-    title: "Mordor Host",
+    title: "Mordor Orcs",
     faction: "Mordor",
     kind: "army",
     zone: "hand",
     art: "mordor",
     strength: "4",
-    text: "Heavy attack icons massing near Minas Tirith.",
+    text: "No rules text. Mordor army card with 1 attack icon and 1 defense icon.",
   },
   {
     id: "black-captain",
     ownerId: "witchKing",
-    title: "Black Captain",
+    title: "The Black Captain",
     faction: "Mordor",
-    kind: "character",
+    kind: "event",
     zone: "hand",
     art: "wraith",
     strength: "3",
-    text: "A leadership card with a cold crown in the art box.",
+    text: "If the Witch-King is in reserve (active or not), (re)activate any Mordor battleground, then you MAY move the Witch-King to this battleground.",
   },
   {
     id: "fell-beast",
     ownerId: "witchKing",
     title: "Fell Beast",
-    faction: "Monstrous",
-    kind: "character",
+    faction: "Mordor",
+    kind: "item",
     zone: "battle",
     art: "beast",
     strength: "2",
-    text: "Already committed to the battleground.",
+    text: "When played on a Nazgul in reserve (active or not), you may immediately move them to a battleground.",
   },
   {
     id: "orthanc",
     ownerId: "saruman",
-    title: "Orthanc's Device",
+    title: "Palantir",
     faction: "Isengard",
     kind: "event",
     zone: "hand",
     art: "tower",
     strength: "E",
-    text: "An event card staged in Saruman's hand.",
+    text: "If Saruman is in reserve (active or not), (re)activate any Isengard battleground of your choice, then you MAY move Saruman to that battleground.",
   },
   {
     id: "uruk-hai",
     ownerId: "saruman",
-    title: "Uruk-hai Assault",
+    title: "Fighting Uruk-Hai",
     faction: "Isengard",
     kind: "army",
     zone: "hand",
     art: "uruk",
     strength: "3",
-    text: "A dense formation with red attack pips.",
+    text: "No rules text. Isengard army with battleground attack and defense icons.",
   },
   {
     id: "southron",
     ownerId: "saruman",
-    title: "Southron Ambush",
+    title: "The Black Serpent",
     faction: "Southron",
-    kind: "event",
+    kind: "character",
     zone: "path",
     art: "desert",
     strength: "E",
-    text: "Committed against the fellowship route.",
+    text: "If in reserve you may use your action and eliminate this card to reactivate any Southron battleground.",
   },
   {
     id: "gimli",
-    ownerId: "aragorn",
+    ownerId: "frodo",
     title: "Gimli",
     faction: "Dwarf",
     kind: "character",
     zone: "battle",
     art: "axe",
     strength: "3",
-    text: "Standing on the battleground beside the free host.",
+    text: "When played you may take \"Dwarevn Axe\" from your cycle pile into your hand.",
   },
   {
     id: "gollum",
-    ownerId: "frodo",
-    title: "Gollum's Treachery",
-    faction: "Hobbit",
-    kind: "event",
+    ownerId: "saruman",
+    title: "Gollum",
+    faction: "Monstrous",
+    kind: "character",
     zone: "path",
     art: "cavern",
     strength: "E",
-    text: "A path effect tucked under the active route.",
+    text: "If on a path you may use your action to activate a different path of the same #. If Gollum is eliminated in path combat, cycle instead.",
   },
 ];
 
 let state: UiState = {
   activePlayerId: "frodo",
   selectedCardId: "sting",
+  zoomCardId: null,
   combatPulse: 0,
   log: [
     { id: 5, text: "Fell Beast committed to Minas Tirith." },
@@ -269,6 +271,56 @@ if (root === null) {
   throw new Error("Missing #app root");
 }
 const appRoot = root;
+let zoomTimer: number | null = null;
+
+appRoot.addEventListener("pointerover", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const cardButton = target.closest<HTMLButtonElement>("[data-card-id]");
+  if (cardButton === null) {
+    return;
+  }
+  if (
+    event.relatedTarget instanceof Node &&
+    cardButton.contains(event.relatedTarget)
+  ) {
+    return;
+  }
+
+  clearZoomTimer();
+  const cardId = cardButton.dataset["cardId"] ?? null;
+  zoomTimer = window.setTimeout(() => {
+    state = { ...state, zoomCardId: cardId };
+    render();
+  }, 650);
+});
+
+appRoot.addEventListener("pointerout", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+
+  const cardButton = target.closest<HTMLButtonElement>("[data-card-id]");
+  if (cardButton === null) {
+    return;
+  }
+  if (
+    event.relatedTarget instanceof Node &&
+    cardButton.contains(event.relatedTarget)
+  ) {
+    return;
+  }
+
+  clearZoomTimer();
+  if (state.zoomCardId !== null) {
+    state = { ...state, zoomCardId: null };
+    render();
+  }
+});
 
 appRoot.addEventListener("click", (event) => {
   const target = event.target;
@@ -294,6 +346,7 @@ appRoot.addEventListener("click", (event) => {
       ...state,
       selectedCardId: cardId,
       activePlayerId: card?.ownerId ?? state.activePlayerId,
+      zoomCardId: null,
     };
     render();
     return;
@@ -354,7 +407,8 @@ function render(): void {
               <div class="zone-title">
                 <span>Battleground</span>
                 <strong>Minas Tirith</strong>
-                <small>Defense 4 - VP 3</small>
+                <small>Defense 3 - VP 3</small>
+                <p>Dunedain player MAY forsake 1 card to draw 3 cards.</p>
               </div>
               <div class="lane">
                 ${cardsInZone("battle").map((card) => cardView(card, "table")).join("")}
@@ -364,7 +418,8 @@ function render(): void {
               <div class="zone-title">
                 <span>Path</span>
                 <strong>Cirith Ungol</strong>
-                <small>Path 7 - VP 2</small>
+                <small>Path 8 - VP 2</small>
+                <p>The Mordor player draws 5 cards, may play 1 Army and cycles rest.</p>
               </div>
               <div class="lane">
                 ${cardsInZone("path").map((card) => cardView(card, "table")).join("")}
@@ -392,6 +447,7 @@ function render(): void {
           </section>
         </aside>
       </section>
+      ${state.zoomCardId === null ? "" : zoomCard(cards.find((card) => card.id === state.zoomCardId) ?? selectedCard())}
     </main>
   `;
 }
@@ -455,6 +511,25 @@ function cardInspector(card: CardMock): string {
   `;
 }
 
+function zoomCard(card: CardMock): string {
+  return `
+    <aside class="zoom-preview" aria-live="polite" aria-label="Card preview">
+      <article class="zoom-card" style="--tone: ${toneFor(card.title)}">
+        <span class="card-kind">${escapeHtml(card.kind)}</span>
+        <strong>${escapeHtml(card.title)}</strong>
+        <span class="card-art art-${card.art}" aria-hidden="true">
+          <i></i><b></b><em></em>
+        </span>
+        <span class="card-meta">
+          <small>${escapeHtml(card.faction)}</small>
+          <mark>${escapeHtml(card.strength)}</mark>
+        </span>
+        <p>${escapeHtml(card.text)}</p>
+      </article>
+    </aside>
+  `;
+}
+
 function pile(label: string, count: number, tone: string): string {
   return `
     <div class="pile pile-${tone}">
@@ -475,6 +550,13 @@ function selectedCard(): CardMock {
     throw new Error("Mock UI requires at least one card");
   }
   return cards.find((card) => card.id === state.selectedCardId) ?? fallback;
+}
+
+function clearZoomTimer(): void {
+  if (zoomTimer !== null) {
+    window.clearTimeout(zoomTimer);
+    zoomTimer = null;
+  }
 }
 
 function actionLog(action: string, title: string): string {

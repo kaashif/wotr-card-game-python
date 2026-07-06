@@ -247,6 +247,14 @@ ol {
   font-size: clamp(1rem, 1.4vw, 1.35rem);
 }
 
+.zone-title p {
+  max-width: 28ch;
+  margin-top: 4px;
+  color: #e2d6bd;
+  font-size: 0.84rem;
+  line-height: 1.25;
+}
+
 .lane {
   display: flex;
   flex-wrap: wrap;
@@ -336,7 +344,7 @@ ol {
   grid-template-columns: 1fr;
   align-content: start;
   justify-items: center;
-  min-height: 252px;
+  min-height: 346px;
 }
 
 .personal-piles {
@@ -347,11 +355,11 @@ ol {
 }
 
 .game-card {
-  --card-width: 124px;
-  --card-height: 172px;
+  --card-width: 142px;
+  --card-height: 222px;
   position: relative;
   display: grid;
-  grid-template-rows: auto auto 58px auto minmax(0, 1fr);
+  grid-template-rows: auto auto 48px auto minmax(0, 1fr);
   gap: 5px;
   width: var(--card-width);
   height: var(--card-height);
@@ -384,16 +392,16 @@ ol {
 
 .seat-west .game-card.hand,
 .seat-east .game-card.hand {
-  --card-width: 108px;
-  --card-height: 150px;
+  --card-width: 132px;
+  --card-height: 204px;
   margin-right: 0;
-  margin-bottom: -56px;
+  margin-bottom: -78px;
   transform: none;
 }
 
 .game-card.table {
-  --card-width: 116px;
-  --card-height: 160px;
+  --card-width: 136px;
+  --card-height: 214px;
 }
 
 .game-card:hover,
@@ -417,7 +425,7 @@ ol {
   min-height: 2.05em;
   overflow-wrap: anywhere;
   font-family: Georgia, serif;
-  font-size: 0.83rem;
+  font-size: 0.8rem;
   line-height: 1.02;
 }
 
@@ -553,10 +561,71 @@ ol {
   display: -webkit-box;
   overflow: hidden;
   color: #4e3b2a;
-  font-size: 0.64rem;
-  line-height: 1.22;
+  font-size: 0.58rem;
+  line-height: 1.14;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 6;
+}
+
+.zoom-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(7, 7, 6, 0.38);
+  animation: zoom-backdrop 140ms ease both;
+}
+
+.zoom-card {
+  display: grid;
+  grid-template-rows: auto auto 190px auto minmax(0, 1fr);
+  gap: 12px;
+  width: min(430px, calc(100vw - 42px));
+  min-height: min(680px, calc(100vh - 42px));
+  padding: 22px;
+  border: 1px solid rgba(58, 40, 27, 0.75);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(238, 225, 195, 0.96)),
+    #efe0bd;
+  color: #241a13;
+  box-shadow:
+    0 34px 90px rgba(0, 0, 0, 0.62),
+    inset 0 0 0 5px rgba(71, 41, 24, 0.12);
+  animation: zoom-card-in 160ms ease both;
+}
+
+.zoom-card .card-kind {
+  font-size: 0.78rem;
+}
+
+.zoom-card strong {
+  font-family: Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 2.55rem);
+  line-height: 0.98;
+}
+
+.zoom-card .card-art {
+  min-height: 190px;
+}
+
+.zoom-card .card-meta small {
+  font-size: 0.9rem;
+}
+
+.zoom-card .card-meta mark {
+  min-width: 44px;
+  height: 44px;
+  font-size: 1.08rem;
+}
+
+.zoom-card p {
+  overflow: auto;
+  color: #3c2d21;
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  line-height: 1.36;
 }
 
 .pile {
@@ -696,6 +765,19 @@ ol {
     box-shadow:
       0 0 0 2px rgba(231, 191, 85, 0.4),
       0 0 34px rgba(231, 191, 85, 0.36);
+  }
+}
+
+@keyframes zoom-backdrop {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes zoom-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
   }
 }
 
