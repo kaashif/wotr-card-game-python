@@ -18,7 +18,7 @@ import {
 import type { ForsakeSource, GameState, PlayerId, PlayDestination } from "./types";
 
 export const archiveVersion = 1;
-export const engineVersion = "engine-command-journal-v2";
+export const engineVersion = "engine-command-journal-v3";
 export const rulesReferenceVersion = "rules-v1.1-cards-v0.2";
 export const rngVersion = "fnv1a-seed-mulberry32-v1";
 

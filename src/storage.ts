@@ -42,10 +42,26 @@ function isGameState(value: unknown): value is GameState {
 function normalizeGameState(state: GameState): GameState {
   return {
     ...state,
+    activatedPaths: state.activatedPaths ?? [],
+    activePath:
+      state.activePath === null
+        ? null
+        : {
+            ...state.activePath,
+            attackTokens: state.activePath.attackTokens ?? 0,
+            defenseTokens: state.activePath.defenseTokens ?? 0,
+          },
     attachments: state.attachments ?? {},
     roundMemory: state.roundMemory ?? {
       playedToReserve: [],
       playedCharacterOrItemCards: [],
     },
+    pendingDecisions: state.pendingDecisions ?? [],
+    eventLog: state.eventLog ?? [],
+    scoringAreas: state.scoringAreas ?? {
+      battlegrounds: { free: [], shadow: [] },
+      paths: { free: [], shadow: [] },
+    },
+    corruption: state.corruption ?? { tokens: 0 },
   };
 }
