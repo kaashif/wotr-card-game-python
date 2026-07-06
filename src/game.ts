@@ -437,6 +437,10 @@ export function usePlayerRingToken(
   );
 }
 
+export function drawForPlayer(state: GameState, playerId: PlayerId, count: number): GameState {
+  return drawCards(state, playerId, count);
+}
+
 export function tryPass(state: GameState): CommandResult {
   const playerId = state.activePlayer;
   const turnViolation = validateActionTurn(state, playerId);
