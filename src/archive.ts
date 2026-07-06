@@ -1,26 +1,49 @@
 import { battlegroundDefinitions, cardDefinitions, pathDefinitions } from "./data";
 import {
   createGame,
+  attachItem,
   cycleCard,
   discardOversizedHands,
+  forsakeCard,
+  moveFromReserve,
   pass,
   playCard,
   resolveCombat,
   selectCard,
   selectPlayer,
+  winnow,
   usePlayerRingToken,
   validateState,
 } from "./game";
-import type { GameState, PlayerId, PlayDestination } from "./types";
+import type { ForsakeSource, GameState, PlayerId, PlayDestination } from "./types";
 
 export const archiveVersion = 1;
-export const engineVersion = "engine-command-journal-v1";
+export const engineVersion = "engine-command-journal-v2";
 export const rulesReferenceVersion = "rules-v1.1-cards-v0.2";
 export const rngVersion = "fnv1a-seed-mulberry32-v1";
 
 export type GameCommand =
+  | {
+      readonly action: "attach";
+      readonly player: PlayerId;
+      readonly item: string;
+      readonly wielder: string;
+      readonly cost?: string;
+    }
   | { readonly action: "cycle"; readonly player: PlayerId; readonly card: string }
   | { readonly action: "discardOversizedHands" }
+  | {
+      readonly action: "forsake";
+      readonly player: PlayerId;
+      readonly source: ForsakeSource;
+      readonly card?: string;
+    }
+  | {
+      readonly action: "move";
+      readonly player: PlayerId;
+      readonly card: string;
+      readonly destination: Exclude<PlayDestination, "reserve">;
+    }
   | { readonly action: "pass" }
   | {
       readonly action: "play";
@@ -167,10 +190,22 @@ export function replayArchive(archive: GameArchive): ReplayVerification {
 
 export function applyGameCommand(state: GameState, command: GameCommand): GameState {
   switch (command.action) {
+    case "attach":
+      return attachItem(
+        state,
+        command.player,
+        command.item,
+        command.wielder,
+        command.cost,
+      );
     case "cycle":
       return cycleCard(state, command.player, command.card);
     case "discardOversizedHands":
       return discardOversizedHands(state);
+    case "forsake":
+      return forsakeCard(state, command.player, command.source, command.card) ?? state;
+    case "move":
+      return moveFromReserve(state, command.player, command.card, command.destination);
     case "pass":
       return pass(state);
     case "play":

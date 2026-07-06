@@ -7,6 +7,7 @@ import {
 } from "./data";
 import {
   canPlayTo,
+  attachItem,
   createGame,
   cycleCard,
   getCard,
@@ -14,6 +15,10 @@ import {
   playCard,
   resolveCombat,
   selectPlayer,
+  tryMoveFromReserve,
+  tryPass,
+  tryWinnow,
+  tryForsake,
   usePlayerRingToken,
   validateState,
 } from "./game";
@@ -108,21 +113,24 @@ describe("game engine", () => {
     expect(validateState(next)).toEqual([]);
   });
 
-  it("allows item cards to be played to reserve but not directly to locations", () => {
+  it("attaches item cards to an indicated wielder already in play", () => {
     const playerId: PlayerId = "aragorn";
     const item = "aragorn-anduril-46-1";
     const cost = "aragorn-strider-44-1";
-    const state = setPlayerZones(createGame("reserve-item"), playerId, {
+    const wielder = "aragorn-aragorn-38-1";
+    const state = setPlayerZones(createGame("attach-item"), playerId, {
       hand: [item, cost],
+      reserve: [wielder],
     });
 
-    expect(canPlayTo(state, playerId, item, "reserve")).toBe(true);
+    expect(canPlayTo(state, playerId, item, "reserve")).toBe(false);
     expect(canPlayTo(state, playerId, item, "path")).toBe(false);
     expect(canPlayTo(state, playerId, item, "battleground")).toBe(false);
 
-    const next = playCard(state, playerId, item, "reserve", cost);
+    const next = attachItem(state, playerId, item, wielder, cost);
 
-    expect(next.players[playerId].reserve).toContain(item);
+    expect(next.attachments[wielder]).toContain(item);
+    expect(next.players[playerId].reserve).not.toContain(item);
     expect(next.players[playerId].cycle).toContain(cost);
     expect(validateState(next)).toEqual([]);
   });
@@ -213,6 +221,103 @@ describe("game engine", () => {
       const definition = getCardDefinition(card.cardId);
       expect(definition.id).toBe(card.cardId);
       expect(definition.title.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("rejects passing above carryover when enemy hands are not larger", () => {
+    const state = {
+      ...createGame("pass-legality"),
+      activePlayer: "frodo" as const,
+    };
+
+    const result = tryPass(state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.violation.code).toBe("pass-not-allowed");
+    }
+  });
+
+  it("moves reserve cards only after the round they entered reserve", () => {
+    const playerId: PlayerId = "frodo";
+    const card = "frodo-frodo-baggins-69-1";
+    const freshReserve = {
+      ...setPlayerZones(createGame("fresh-reserve-move"), playerId, {
+        reserve: [card],
+      }),
+      activePlayer: playerId,
+      roundMemory: { playedToReserve: [card], playedCharacterOrItemCards: [] },
+    };
+
+    const rejectedMove = tryMoveFromReserve(freshReserve, playerId, card, "path");
+
+    expect(rejectedMove.ok).toBe(false);
+    if (!rejectedMove.ok) {
+      expect(rejectedMove.violation.code).toBe("reserve-card-played-this-round");
+    }
+
+    const laterReserve = {
+      ...freshReserve,
+      roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
+    };
+    const moved = tryMoveFromReserve(laterReserve, playerId, card, "path");
+
+    expect(moved.ok).toBe(true);
+    if (moved.ok) {
+      expect(moved.state.activePath?.cards).toContain(card);
+      expect(moved.state.players[playerId].reserve).not.toContain(card);
+      expect(validateState(moved.state)).toEqual([]);
+    }
+  });
+
+  it("winnows by eliminating two hand cards and drawing one", () => {
+    const playerId: PlayerId = "frodo";
+    const first = "frodo-frodo-baggins-69-1";
+    const second = "frodo-sam-gamgee-72-1";
+    const drawn = "frodo-bilbo-baggins-73-1";
+    const state = {
+      ...setPlayerZones(createGame("winnow"), playerId, {
+        hand: [first, second],
+        draw: [drawn],
+        cycle: [],
+      }),
+      activePlayer: playerId,
+    };
+
+    const result = tryWinnow(state, playerId, first, second);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players[playerId].eliminated).toEqual(
+        expect.arrayContaining([first, second]),
+      );
+      expect(result.state.players[playerId].hand).toContain(drawn);
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
+  it("forsakes a chosen hand or reserve card instead of always taking draw", () => {
+    const playerId: PlayerId = "aragorn";
+    const hand = "aragorn-boromir-39-1";
+    const reserve = "aragorn-faramir-41-1";
+    const draw = "aragorn-strider-44-1";
+    const state = setPlayerZones(createGame("forsake-choice"), playerId, {
+      hand: [hand],
+      reserve: [reserve],
+      draw: [draw],
+    });
+
+    const handResult = tryForsake(state, playerId, "hand", hand);
+    const reserveResult = tryForsake(state, playerId, "reserve", reserve);
+    const drawResult = tryForsake(state, playerId, "draw");
+
+    expect(handResult.ok).toBe(true);
+    expect(reserveResult.ok).toBe(true);
+    expect(drawResult.ok).toBe(true);
+    if (handResult.ok && reserveResult.ok && drawResult.ok) {
+      expect(handResult.state.players[playerId].eliminated).toContain(hand);
+      expect(reserveResult.state.players[playerId].eliminated).toContain(reserve);
+      expect(drawResult.state.players[playerId].eliminated).toContain(draw);
     }
   });
 });
