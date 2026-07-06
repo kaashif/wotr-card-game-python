@@ -15,7 +15,7 @@ export function loadGame(): GameState | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (isGameState(parsed)) {
-      return parsed;
+      return normalizeGameState(parsed);
     }
   } catch {
     return null;
@@ -37,4 +37,15 @@ function isGameState(value: unknown): value is GameState {
     "players" in value &&
     "cards" in value
   );
+}
+
+function normalizeGameState(state: GameState): GameState {
+  return {
+    ...state,
+    attachments: state.attachments ?? {},
+    roundMemory: state.roundMemory ?? {
+      playedToReserve: [],
+      playedCharacterOrItemCards: [],
+    },
+  };
 }

@@ -29,6 +29,8 @@ export type Phase = "setup" | "action" | "combat" | "gameOver";
 
 export type PlayDestination = "reserve" | "battleground" | "path";
 
+export type ForsakeSource = "hand" | "reserve" | "draw";
+
 export interface CardDefinition {
   readonly id: string;
   readonly title: string;
@@ -119,6 +121,13 @@ export interface SelectionState {
   readonly cardId: string | null;
 }
 
+export interface RoundMemory {
+  readonly playedToReserve: readonly string[];
+  readonly playedCharacterOrItemCards: readonly string[];
+}
+
+export type AttachmentState = Readonly<Record<string, readonly string[]>>;
+
 export interface GameState {
   readonly schemaVersion: 1;
   readonly seed: string;
@@ -132,10 +141,38 @@ export interface GameState {
   readonly activePath: ActivePath | null;
   readonly players: Readonly<Record<PlayerId, PlayerState>>;
   readonly cards: Readonly<Record<string, CardInstance>>;
+  readonly attachments: AttachmentState;
+  readonly roundMemory: RoundMemory;
   readonly score: ScoreState;
   readonly log: readonly LogEntry[];
   readonly selection: SelectionState;
 }
+
+export type RuleViolationCode =
+  | "wrong-phase"
+  | "wrong-player"
+  | "card-not-found"
+  | "card-not-in-hand"
+  | "card-not-in-reserve"
+  | "invalid-destination"
+  | "invalid-cost"
+  | "invalid-forsake-source"
+  | "invalid-wielder"
+  | "item-already-attached"
+  | "reserve-card-played-this-round"
+  | "repeat-character-or-item-this-round"
+  | "pass-not-allowed"
+  | "insufficient-hand-cards";
+
+export interface RuleViolation {
+  readonly code: RuleViolationCode;
+  readonly message: string;
+  readonly source?: string;
+}
+
+export type CommandResult =
+  | { readonly ok: true; readonly state: GameState; readonly events: readonly string[] }
+  | { readonly ok: false; readonly state: GameState; readonly violation: RuleViolation };
 
 export interface GameViewModel {
   readonly state: GameState;

@@ -10,18 +10,22 @@ import type {
   ActivePath,
   CardDefinition,
   CardInstance,
+  CommandResult,
+  ForsakeSource,
   Faction,
   GameState,
   Phase,
   PlayDestination,
   PlayerId,
   PlayerState,
+  RuleViolation,
   Side,
 } from "./types";
 
 const startingHandSize = 7;
 const setupCycleCount = 2;
 const handLimit = 6;
+const baseCarryoverLimit = 2;
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -114,6 +118,8 @@ export function createGame(seed = String(Date.now())): GameState {
     activePath: null,
     players: playerStates,
     cards: instances,
+    attachments: {},
+    roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
     score: { free: 0, shadow: 0 },
     log: [],
     selection: { playerId: "frodo", cardId: null },
@@ -150,6 +156,39 @@ export function playSelected(
   return playCard(state, playerId, instanceId, destination);
 }
 
+export function tryPlayCard(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: PlayDestination,
+  costCardId?: string,
+): CommandResult {
+  const turnViolation = validateActionTurn(state, playerId);
+  if (turnViolation !== null) {
+    return rejected(state, turnViolation);
+  }
+  if (!canPlayTo(state, playerId, instanceId, destination)) {
+    return rejected(state, {
+      code: "invalid-destination",
+      message: "That card cannot be played there.",
+      source: "rules:151-199",
+    });
+  }
+  const cardDef = getCardDefinition(getCard(state, instanceId).cardId);
+  if (
+    (cardDef.type === "character" || cardDef.type === "item") &&
+    state.roundMemory.playedCharacterOrItemCards.includes(cardDef.id)
+  ) {
+    return rejected(state, {
+      code: "repeat-character-or-item-this-round",
+      message: "The exact same character or item card cannot be played twice in one round.",
+      source: "rules:217",
+    });
+  }
+  const nextState = playCard(state, playerId, instanceId, destination, costCardId);
+  return accepted(nextState, [`played:${instanceId}:${destination}`]);
+}
+
 export function playCard(
   state: GameState,
   playerId: PlayerId,
@@ -175,10 +214,16 @@ export function playCard(
   };
 
   if (destination === "reserve") {
-    nextState = updatePlayer(nextState, playerId, (current) => ({
-      ...current,
-      reserve: [...current.reserve, instanceId],
-    }));
+    nextState = {
+      ...updatePlayer(nextState, playerId, (current) => ({
+        ...current,
+        reserve: [...current.reserve, instanceId],
+      })),
+      roundMemory: {
+        ...nextState.roundMemory,
+        playedToReserve: [...nextState.roundMemory.playedToReserve, instanceId],
+      },
+    };
   } else if (destination === "battleground") {
     nextState = {
       ...nextState,
@@ -216,9 +261,107 @@ export function playCard(
     nextState = forsakeFromTopOfDeck(nextState, playerId);
   }
 
+  if (cardDef.type === "character" || cardDef.type === "item") {
+    nextState = rememberCharacterOrItemPlayed(nextState, cardDef.id);
+  }
+
   return addLog(
     nextState,
     `${players[playerId].name} played ${cardDef.title} to ${destination}.`,
+  );
+}
+
+export function tryAttachItem(
+  state: GameState,
+  playerId: PlayerId,
+  itemId: string,
+  wielderId: string,
+  costCardId?: string,
+): CommandResult {
+  const turnViolation = validateActionTurn(state, playerId);
+  if (turnViolation !== null) {
+    return rejected(state, turnViolation);
+  }
+
+  const player = state.players[playerId];
+  if (!player.hand.includes(itemId)) {
+    return rejected(state, {
+      code: "card-not-in-hand",
+      message: "Only an item in hand can be attached.",
+      source: "rules:173-177",
+    });
+  }
+  const itemDef = getCardDefinition(getCard(state, itemId).cardId);
+  if (itemDef.type !== "item") {
+    return rejected(state, {
+      code: "invalid-wielder",
+      message: "Only item cards can be attached to a wielder.",
+      source: "rules:173",
+    });
+  }
+  if (state.roundMemory.playedCharacterOrItemCards.includes(itemDef.id)) {
+    return rejected(state, {
+      code: "repeat-character-or-item-this-round",
+      message: "The exact same character or item card cannot be played twice in one round.",
+      source: "rules:217",
+    });
+  }
+  if (!isValidWielder(state, itemDef, wielderId)) {
+    return rejected(state, {
+      code: "invalid-wielder",
+      message: "An item can only be played on an indicated character already in play.",
+      source: "rules:173-177",
+    });
+  }
+  if (Object.values(state.attachments).some((items) => items.includes(itemId))) {
+    return rejected(state, {
+      code: "item-already-attached",
+      message: "That item is already attached.",
+      source: "rules:187",
+    });
+  }
+
+  const nextState = attachItem(state, playerId, itemId, wielderId, costCardId);
+  return accepted(nextState, [`attached:${itemId}:${wielderId}`]);
+}
+
+export function attachItem(
+  state: GameState,
+  playerId: PlayerId,
+  itemId: string,
+  wielderId: string,
+  costCardId?: string,
+): GameState {
+  const player = state.players[playerId];
+  const nextHand = removeOne(player.hand, itemId);
+  const requiredCycle = costCardId ?? nextHand[0] ?? null;
+  let nextState: GameState = {
+    ...state,
+    players: setPlayer(state.players, playerId, { ...player, hand: nextHand }),
+    attachments: {
+      ...state.attachments,
+      [wielderId]: [...(state.attachments[wielderId] ?? []), itemId],
+    },
+    selection: { ...state.selection, cardId: nextHand[0] ?? null },
+  };
+
+  if (requiredCycle !== null) {
+    if (requiredCycle === itemId || !nextHand.includes(requiredCycle)) {
+      return addLog(state, "Playing an item requires cycling a different hand card.");
+    }
+    nextState = updatePlayer(nextState, playerId, (current) => ({
+      ...current,
+      hand: removeOne(current.hand, requiredCycle),
+      cycle: [...current.cycle, requiredCycle],
+    }));
+  } else {
+    nextState = forsakeFromTopOfDeck(nextState, playerId);
+  }
+
+  const itemDef = getCardDefinition(getCard(state, itemId).cardId);
+  return addLog(
+    rememberCharacterOrItemPlayed(nextState, itemDef.id),
+    `${players[playerId].name} attached ${itemDef.title}.`,
   );
 }
 
@@ -280,8 +423,27 @@ export function usePlayerRingToken(
   );
 }
 
+export function tryPass(state: GameState): CommandResult {
+  const playerId = state.activePlayer;
+  const turnViolation = validateActionTurn(state, playerId);
+  if (turnViolation !== null) {
+    return rejected(state, turnViolation);
+  }
+  if (!canPass(state, playerId)) {
+    return rejected(state, {
+      code: "pass-not-allowed",
+      message: "A player can pass only under carryover or enemy-hand conditions.",
+      source: "rules:142-145",
+    });
+  }
+  return accepted(pass(state), [`passed:${playerId}`]);
+}
+
 export function pass(state: GameState): GameState {
   const playerId = state.activePlayer;
+  if (!canPass(state, playerId)) {
+    return addLog(state, `${players[playerId].name} cannot pass yet.`);
+  }
   const nextState = updatePlayer(state, playerId, (player) => ({
     ...player,
     passed: true,
@@ -296,6 +458,175 @@ export function pass(state: GameState): GameState {
     { ...nextState, activePlayer: nextPlayerId(playerId) },
     `${players[playerId].name} passed.`,
   );
+}
+
+export function canPass(state: GameState, playerId: PlayerId): boolean {
+  const player = state.players[playerId];
+  if (player.hand.length <= carryoverLimit(state, playerId)) {
+    return true;
+  }
+  return enemyPlayers(playerId).every(
+    (enemyId) => player.hand.length < state.players[enemyId].hand.length,
+  );
+}
+
+export function tryMoveFromReserve(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: Exclude<PlayDestination, "reserve">,
+): CommandResult {
+  const turnViolation = validateActionTurn(state, playerId);
+  if (turnViolation !== null) {
+    return rejected(state, turnViolation);
+  }
+  const player = state.players[playerId];
+  if (!player.reserve.includes(instanceId)) {
+    return rejected(state, {
+      code: "card-not-in-reserve",
+      message: "Only a card in reserve can be moved.",
+      source: "rules:222-227",
+    });
+  }
+  if (state.roundMemory.playedToReserve.includes(instanceId)) {
+    return rejected(state, {
+      code: "reserve-card-played-this-round",
+      message: "Cards played to reserve cannot be moved in the same round.",
+      source: "rules:200-206",
+    });
+  }
+  if (!canMoveTo(state, playerId, instanceId, destination)) {
+    return rejected(state, {
+      code: "invalid-destination",
+      message: "That reserve card cannot be moved there.",
+      source: "rules:222-227",
+    });
+  }
+  return accepted(moveFromReserve(state, playerId, instanceId, destination), [
+    `moved:${instanceId}:${destination}`,
+  ]);
+}
+
+export function moveFromReserve(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: Exclude<PlayDestination, "reserve">,
+): GameState {
+  const cardDef = getCardDefinition(getCard(state, instanceId).cardId);
+  let nextState = updatePlayer(state, playerId, (player) => ({
+    ...player,
+    reserve: removeOne(player.reserve, instanceId),
+  }));
+
+  if (destination === "battleground") {
+    nextState = {
+      ...nextState,
+      activeBattleground:
+        nextState.activeBattleground === null
+          ? null
+          : {
+              ...nextState.activeBattleground,
+              cards: [...nextState.activeBattleground.cards, instanceId],
+            },
+    };
+  } else {
+    nextState = {
+      ...nextState,
+      activePath:
+        nextState.activePath === null
+          ? null
+          : {
+              ...nextState.activePath,
+              cards: [...nextState.activePath.cards, instanceId],
+            },
+    };
+  }
+
+  return addLog(
+    nextState,
+    `${players[playerId].name} moved ${cardDef.title} to ${destination}.`,
+  );
+}
+
+export function tryWinnow(
+  state: GameState,
+  playerId: PlayerId,
+  firstCardId: string,
+  secondCardId: string,
+): CommandResult {
+  const turnViolation = validateActionTurn(state, playerId);
+  if (turnViolation !== null) {
+    return rejected(state, turnViolation);
+  }
+  const player = state.players[playerId];
+  if (
+    firstCardId === secondCardId ||
+    !player.hand.includes(firstCardId) ||
+    !player.hand.includes(secondCardId)
+  ) {
+    return rejected(state, {
+      code: "insufficient-hand-cards",
+      message: "Winnow requires eliminating two different cards from hand.",
+      source: "rules:138,242",
+    });
+  }
+  return accepted(winnow(state, playerId, firstCardId, secondCardId), [
+    `winnowed:${firstCardId}:${secondCardId}`,
+  ]);
+}
+
+export function winnow(
+  state: GameState,
+  playerId: PlayerId,
+  firstCardId: string,
+  secondCardId: string,
+): GameState {
+  const nextState = drawCards(
+    eliminateCards(state, [firstCardId, secondCardId]),
+    playerId,
+    1,
+  );
+  return addLog(nextState, `${players[playerId].name} winnowed 2 cards.`);
+}
+
+export function tryForsake(
+  state: GameState,
+  playerId: PlayerId,
+  source: ForsakeSource,
+  instanceId?: string,
+): CommandResult {
+  const nextState = forsakeCard(state, playerId, source, instanceId);
+  if (nextState === null) {
+    return rejected(state, {
+      code: "invalid-forsake-source",
+      message: "Forsake must choose a card from hand, reserve, or the top of the draw deck.",
+      source: "rules:385-395",
+    });
+  }
+  return accepted(nextState, [`forsook:${source}:${instanceId ?? "top"}`]);
+}
+
+export function forsakeCard(
+  state: GameState,
+  playerId: PlayerId,
+  source: ForsakeSource,
+  instanceId?: string,
+): GameState | null {
+  const player = state.players[playerId];
+  if (source === "draw") {
+    return forsakeFromTopOfDeck(state, playerId);
+  }
+  if (instanceId === undefined) {
+    return null;
+  }
+  if (source === "hand" && player.hand.includes(instanceId)) {
+    return eliminateCards(state, [instanceId]);
+  }
+  if (source === "reserve" && player.reserve.includes(instanceId)) {
+    return eliminateCards(state, [instanceId]);
+  }
+  return null;
 }
 
 export function nextTurn(state: GameState): GameState {
@@ -369,6 +700,7 @@ export function validateState(state: GameState): readonly string[] {
     }),
     state.activeBattleground?.cards ?? [],
     state.activePath?.cards ?? [],
+    ...Object.values(state.attachments),
   ];
 
   for (const zone of allZones) {
@@ -403,6 +735,35 @@ export function validateState(state: GameState): readonly string[] {
     }
   }
 
+  for (const [wielderId, itemIds] of Object.entries(state.attachments)) {
+    const wielder = state.cards[wielderId];
+    if (wielder === undefined) {
+      errors.push(`Attachment references unknown wielder: ${wielderId}`);
+      continue;
+    }
+    const wielderDef = getCardDefinition(wielder.cardId);
+    if (wielderDef.type !== "character") {
+      errors.push(`Attachment wielder is not a character: ${wielderId}`);
+    }
+    if (!isInPlay(state, wielderId)) {
+      errors.push(`Attachment wielder is not in play: ${wielderId}`);
+    }
+    for (const itemId of itemIds) {
+      const item = state.cards[itemId];
+      if (item === undefined) {
+        errors.push(`Attachment references unknown item: ${itemId}`);
+        continue;
+      }
+      const itemDef = getCardDefinition(item.cardId);
+      if (itemDef.type !== "item") {
+        errors.push(`Attached card is not an item: ${itemId}`);
+      }
+      if (!isAllowedWielderName(itemDef, wielderDef.title)) {
+        errors.push(`Item ${itemId} cannot be attached to ${wielderId}`);
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -419,7 +780,7 @@ export function canPlayTo(
   const card = getCard(state, instanceId);
   const cardDef = getCardDefinition(card.cardId);
   if (destination === "reserve") {
-    return cardDef.type === "army" || cardDef.type === "character" || cardDef.type === "item";
+    return cardDef.type === "army" || cardDef.type === "character";
   }
   if (destination === "battleground") {
     const battleground = state.activeBattleground;
@@ -442,6 +803,44 @@ export function canPlayTo(
     cardDef.type === "character" &&
     cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
   );
+}
+
+export function canMoveTo(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: Exclude<PlayDestination, "reserve">,
+): boolean {
+  const player = state.players[playerId];
+  if (!player.reserve.includes(instanceId)) {
+    return false;
+  }
+  const card = getCard(state, instanceId);
+  const cardDef = getCardDefinition(card.cardId);
+  if (cardDef.type !== "army" && cardDef.type !== "character") {
+    return false;
+  }
+  if (destination === "path") {
+    const path = state.activePath;
+    return (
+      path !== null &&
+      cardDef.type === "character" &&
+      cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
+    );
+  }
+  const battleground = state.activeBattleground;
+  if (battleground === null) {
+    return false;
+  }
+  const battlegroundDef = battlegroundById.get(battleground.id);
+  if (battlegroundDef === undefined) {
+    return false;
+  }
+  const playableFactions: readonly Faction[] = [
+    ...battlegroundDef.attackingFactions,
+    ...battlegroundDef.defendingFactions,
+  ];
+  return playableFactions.includes(cardDef.faction);
 }
 
 function startRound(state: GameState): GameState {
@@ -486,6 +885,7 @@ function startRound(state: GameState): GameState {
       pathDeck: nextPathDeck,
       activeBattleground: nextBattleground,
       activePath: nextPath,
+      roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
     },
     `Round ${state.round}: activated ${labelBattleground(nextBattleground)} and ${labelPath(
       nextPath,
@@ -634,33 +1034,207 @@ function forsakeFromTopOfDeck(state: GameState, playerId: PlayerId): GameState {
 }
 
 function eliminateCards(state: GameState, instanceIds: readonly string[]): GameState {
-  return instanceIds.reduce((nextState, instanceId) => {
+  const cardsToEliminate = expandWithAttachedItems(state, instanceIds);
+  return cardsToEliminate.reduce((nextState, instanceId) => {
     const owner = findOwner(nextState, instanceId);
     if (owner === null) {
       return nextState;
     }
-    return updatePlayer(nextState, owner, (player) => ({
-      ...player,
-      reserve: removeOne(player.reserve, instanceId),
-      hand: removeOne(player.hand, instanceId),
-      eliminated: [...player.eliminated, instanceId],
-    }));
-  }, state);
+    return stripEmptyAttachmentLists(
+      removeFromSharedPlayZones(
+        updatePlayer(nextState, owner, (player) => ({
+          ...player,
+          reserve: removeOne(player.reserve, instanceId),
+          hand: removeOne(player.hand, instanceId),
+          draw: removeOne(player.draw, instanceId),
+          cycle: removeOne(player.cycle, instanceId),
+          eliminated: player.eliminated.includes(instanceId)
+            ? player.eliminated
+            : [...player.eliminated, instanceId],
+        })),
+        instanceId,
+      ),
+    );
+  }, removeAttachmentLinks(state, cardsToEliminate));
 }
 
 function cycleCards(state: GameState, instanceIds: readonly string[]): GameState {
-  return instanceIds.reduce((nextState, instanceId) => {
+  const cardsToCycle = expandWithAttachedItems(state, instanceIds);
+  return cardsToCycle.reduce((nextState, instanceId) => {
     const owner = findOwner(nextState, instanceId);
     if (owner === null) {
       return nextState;
     }
-    return updatePlayer(nextState, owner, (player) => ({
-      ...player,
-      reserve: removeOne(player.reserve, instanceId),
-      hand: removeOne(player.hand, instanceId),
-      cycle: [...player.cycle, instanceId],
-    }));
-  }, state);
+    return stripEmptyAttachmentLists(
+      removeFromSharedPlayZones(
+        updatePlayer(nextState, owner, (player) => ({
+          ...player,
+          reserve: removeOne(player.reserve, instanceId),
+          hand: removeOne(player.hand, instanceId),
+          draw: removeOne(player.draw, instanceId),
+          eliminated: removeOne(player.eliminated, instanceId),
+          cycle: player.cycle.includes(instanceId) ? player.cycle : [...player.cycle, instanceId],
+        })),
+        instanceId,
+      ),
+    );
+  }, removeAttachmentLinks(state, cardsToCycle));
+}
+
+function expandWithAttachedItems(
+  state: GameState,
+  instanceIds: readonly string[],
+): readonly string[] {
+  const expanded: string[] = [];
+  const visit = (instanceId: string): void => {
+    if (expanded.includes(instanceId)) {
+      return;
+    }
+    expanded.push(instanceId);
+    for (const itemId of state.attachments[instanceId] ?? []) {
+      visit(itemId);
+    }
+  };
+  for (const instanceId of instanceIds) {
+    visit(instanceId);
+  }
+  return expanded;
+}
+
+function removeAttachmentLinks(
+  state: GameState,
+  instanceIds: readonly string[],
+): GameState {
+  const removing = new Set(instanceIds);
+  return {
+    ...state,
+    attachments: Object.fromEntries(
+      Object.entries(state.attachments)
+        .filter(([wielderId]) => !removing.has(wielderId))
+        .map(([wielderId, itemIds]) => [
+          wielderId,
+          itemIds.filter((itemId) => !removing.has(itemId)),
+        ]),
+    ),
+  };
+}
+
+function stripEmptyAttachmentLists(state: GameState): GameState {
+  return {
+    ...state,
+    attachments: Object.fromEntries(
+      Object.entries(state.attachments).filter(([, itemIds]) => itemIds.length > 0),
+    ),
+  };
+}
+
+function removeFromSharedPlayZones(state: GameState, instanceId: string): GameState {
+  return {
+    ...state,
+    activeBattleground:
+      state.activeBattleground === null
+        ? null
+        : {
+            ...state.activeBattleground,
+            cards: removeOne(state.activeBattleground.cards, instanceId),
+          },
+    activePath:
+      state.activePath === null
+        ? null
+        : {
+            ...state.activePath,
+            cards: removeOne(state.activePath.cards, instanceId),
+          },
+  };
+}
+
+function rememberCharacterOrItemPlayed(state: GameState, cardId: string): GameState {
+  if (state.roundMemory.playedCharacterOrItemCards.includes(cardId)) {
+    return state;
+  }
+  return {
+    ...state,
+    roundMemory: {
+      ...state.roundMemory,
+      playedCharacterOrItemCards: [
+        ...state.roundMemory.playedCharacterOrItemCards,
+        cardId,
+      ],
+    },
+  };
+}
+
+function isValidWielder(
+  state: GameState,
+  itemDef: CardDefinition,
+  wielderId: string,
+): boolean {
+  if (!isInPlay(state, wielderId)) {
+    return false;
+  }
+  const wielder = state.cards[wielderId];
+  if (wielder === undefined) {
+    return false;
+  }
+  const wielderDef = getCardDefinition(wielder.cardId);
+  return wielderDef.type === "character" && isAllowedWielderName(itemDef, wielderDef.title);
+}
+
+function isAllowedWielderName(itemDef: CardDefinition, wielderTitle: string): boolean {
+  return itemDef.allowedWielders.some((allowed) => {
+    const normalizedAllowed = normalizeName(allowed);
+    const normalizedTitle = normalizeName(wielderTitle);
+    return (
+      normalizedAllowed === normalizedTitle ||
+      normalizedTitle.includes(normalizedAllowed) ||
+      normalizedAllowed.includes(normalizedTitle)
+    );
+  });
+}
+
+function isInPlay(state: GameState, instanceId: string): boolean {
+  return (
+    Object.values(state.players).some((player) => player.reserve.includes(instanceId)) ||
+    (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
+    (state.activePath?.cards.includes(instanceId) ?? false)
+  );
+}
+
+function carryoverLimit(_state: GameState, _playerId: PlayerId): number {
+  return baseCarryoverLimit;
+}
+
+function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
+  const side = players[playerId].side;
+  return turnOrder.filter((candidate) => players[candidate].side !== side);
+}
+
+function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation | null {
+  if (state.phase !== "action") {
+    return {
+      code: "wrong-phase",
+      message: "This command can only be used during the action phase.",
+    };
+  }
+  if (state.activePlayer !== playerId) {
+    return {
+      code: "wrong-player",
+      message: "Only the active player can take an action.",
+    };
+  }
+  return null;
+}
+
+function accepted(state: GameState, events: readonly string[]): CommandResult {
+  return { ok: true, state, events };
+}
+
+function rejected(state: GameState, violation: RuleViolation): CommandResult {
+  return { ok: false, state, violation };
+}
+
+function normalizeName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function assignDefenderLosses(
