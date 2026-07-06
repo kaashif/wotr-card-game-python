@@ -36,7 +36,6 @@ interface LogEntry {
 interface UiState {
   activePlayerId: string;
   selectedCardId: string;
-  zoomCardId: string | null;
   combatPulse: number;
   log: readonly LogEntry[];
 }
@@ -255,7 +254,6 @@ const cards: readonly CardMock[] = [
 let state: UiState = {
   activePlayerId: "frodo",
   selectedCardId: "sting",
-  zoomCardId: null,
   combatPulse: 0,
   log: [
     { id: 5, text: "Fell Beast committed to Minas Tirith." },
@@ -272,6 +270,7 @@ if (root === null) {
 }
 const appRoot = root;
 let zoomTimer: number | null = null;
+let zoomPreview: HTMLElement | null = null;
 
 appRoot.addEventListener("pointerover", (event) => {
   const target = event.target;
@@ -293,8 +292,7 @@ appRoot.addEventListener("pointerover", (event) => {
   clearZoomTimer();
   const cardId = cardButton.dataset["cardId"] ?? null;
   zoomTimer = window.setTimeout(() => {
-    state = { ...state, zoomCardId: cardId };
-    render();
+    showZoomPreview(cardId);
   }, 650);
 });
 
@@ -316,10 +314,7 @@ appRoot.addEventListener("pointerout", (event) => {
   }
 
   clearZoomTimer();
-  if (state.zoomCardId !== null) {
-    state = { ...state, zoomCardId: null };
-    render();
-  }
+  hideZoomPreview();
 });
 
 appRoot.addEventListener("click", (event) => {
@@ -346,8 +341,8 @@ appRoot.addEventListener("click", (event) => {
       ...state,
       selectedCardId: cardId,
       activePlayerId: card?.ownerId ?? state.activePlayerId,
-      zoomCardId: null,
     };
+    hideZoomPreview();
     render();
     return;
   }
@@ -447,7 +442,6 @@ function render(): void {
           </section>
         </aside>
       </section>
-      ${state.zoomCardId === null ? "" : zoomCard(cards.find((card) => card.id === state.zoomCardId) ?? selectedCard())}
     </main>
   `;
 }
@@ -557,6 +551,26 @@ function clearZoomTimer(): void {
     window.clearTimeout(zoomTimer);
     zoomTimer = null;
   }
+}
+
+function showZoomPreview(cardId: string | null): void {
+  const card =
+    cardId === null
+      ? selectedCard()
+      : cards.find((candidate) => candidate.id === cardId) ?? selectedCard();
+  hideZoomPreview();
+  const container = document.createElement("div");
+  container.innerHTML = zoomCard(card).trim();
+  const preview = container.firstElementChild;
+  if (preview instanceof HTMLElement) {
+    document.body.append(preview);
+    zoomPreview = preview;
+  }
+}
+
+function hideZoomPreview(): void {
+  zoomPreview?.remove();
+  zoomPreview = null;
 }
 
 function actionLog(action: string, title: string): string {

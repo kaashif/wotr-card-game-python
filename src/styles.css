@@ -404,7 +404,14 @@ ol {
   --card-height: 214px;
 }
 
-.game-card:hover,
+.game-card:hover {
+  z-index: 5;
+  border-color: #c99735;
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.38),
+    0 0 0 3px rgba(231, 191, 85, 0.26);
+}
+
 .game-card.selected {
   z-index: 5;
   border-color: #c99735;
