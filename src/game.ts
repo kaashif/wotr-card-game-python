@@ -121,6 +121,41 @@ const optionalLocationForsakes: Readonly<
     drawAfterResolution: 1,
   },
 };
+const locationDrawThenCycle: Readonly<
+  Record<
+    string,
+    readonly {
+      readonly playerId: PlayerId;
+      readonly draw: number;
+      readonly cycle: number;
+    }[]
+  >
+> = {
+  "gildors-encampment": [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+  egladil: [
+    { playerId: "frodo", draw: 2, cycle: 1 },
+    { playerId: "aragorn", draw: 2, cycle: 1 },
+  ],
+  "lothlorien-lorien": [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+  "amon-hen": [
+    { playerId: "witchKing", draw: 1, cycle: 1 },
+  ],
+  rivendel: [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+};
+const mandatoryLocationCycles: Readonly<
+  Record<string, readonly { readonly playerId: PlayerId; readonly count: number }[]>
+> = {
+  "dimrill-dale": [
+    { playerId: "witchKing", count: 2 },
+    { playerId: "saruman", count: 2 },
+  ],
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -1193,6 +1228,63 @@ export function tryResolveForsakeDecision(
   return accepted(nextState, events);
 }
 
+export function tryResolveCycleFromHandDecision(
+  state: GameState,
+  playerId: PlayerId,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "cycleFromHand") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not cycle from hand.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  const hand = state.players[playerId].hand;
+  const minimum = Math.min(decision.minimum, hand.length);
+  const maximum = Math.min(decision.maximum, hand.length);
+  if (
+    selectedCards.length < minimum ||
+    selectedCards.length > maximum ||
+    new Set(selectedCards).size !== selectedCards.length ||
+    selectedCards.some((cardId) => !hand.includes(cardId))
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: `Select between ${minimum} and ${maximum} different cards from hand to cycle.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const nextState = resolveOldestPendingDecision(
+    cycleCards(state, selectedCards),
+  );
+  return accepted(nextState, [
+    ...selectedCards.map((cardId) => ({
+      type: "cardCycled" as const,
+      playerId,
+      cardId,
+    })),
+    {
+      type: "pendingDecisionResolved",
+      decisionType: decision.type,
+      playerId,
+    },
+  ]);
+}
+
 export function tryResolveSearchDecision(
   state: GameState,
   playerId: PlayerId,
@@ -1888,6 +1980,39 @@ function applySimpleLocationActivationEffects(
         { type: "cardsDrawn", playerId, count: drawn },
       ]);
     }
+  }
+  for (const effect of locationDrawThenCycle[locationId] ?? []) {
+    const handSize = nextState.players[effect.playerId].hand.length;
+    nextState = drawCards(nextState, effect.playerId, effect.draw);
+    const drawn =
+      nextState.players[effect.playerId].hand.length - handSize;
+    if (drawn > 0) {
+      nextState = appendEvents(nextState, [
+        {
+          type: "cardsDrawn",
+          playerId: effect.playerId,
+          count: drawn,
+        },
+      ]);
+    }
+    nextState = enqueuePendingDecision(nextState, {
+      type: "cycleFromHand",
+      playerId: effect.playerId,
+      minimum: effect.cycle,
+      maximum: effect.cycle,
+      reason: `${locationId} activation`,
+      source: `location:${locationId}`,
+    });
+  }
+  for (const effect of mandatoryLocationCycles[locationId] ?? []) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "cycleFromHand",
+      playerId: effect.playerId,
+      minimum: effect.count,
+      maximum: effect.count,
+      reason: `${locationId} activation`,
+      source: `location:${locationId}`,
+    });
   }
   if (locationId === "morgai" && nextState.activePath?.id === locationId) {
     nextState = addActivePathAttackTokens(nextState, 1);

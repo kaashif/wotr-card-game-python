@@ -20,6 +20,7 @@ import {
   tryPass,
   tryPlayCard,
   tryResolveCombatLossDecision,
+  tryResolveCycleFromHandDecision,
   tryResolveDrawPlayCycleRestDecision,
   tryResolveForsakeDecision,
   tryResolveSearchDecision,
@@ -163,6 +164,18 @@ function applyGeneratedCommand(state: GameState, rng: () => number): GameState {
           tryResolveForsakeDecision(state, pending.playerId, choices),
         );
       }
+      case "cycleFromHand":
+        return acceptOrKeep(
+          state,
+          tryResolveCycleFromHandDecision(
+            state,
+            pending.playerId,
+            state.players[pending.playerId].hand.slice(
+              0,
+              pending.minimum,
+            ),
+          ),
+        );
       case "search":
         return acceptOrKeep(
           state,

@@ -246,6 +246,7 @@ describe("game engine", () => {
         reserve: [card],
       }),
       activePlayer: playerId,
+      pendingDecisions: [],
       roundMemory: { playedToReserve: [card], playedCharacterOrItemCards: [] },
     };
 

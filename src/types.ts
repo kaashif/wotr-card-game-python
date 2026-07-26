@@ -194,6 +194,14 @@ export type PendingDecision =
       readonly source?: string;
     }
   | {
+      readonly type: "cycleFromHand";
+      readonly playerId: PlayerId;
+      readonly minimum: number;
+      readonly maximum: number;
+      readonly reason: string;
+      readonly source?: string;
+    }
+  | {
       readonly type: "search";
       readonly playerId: PlayerId;
       readonly zones: readonly Zone[];

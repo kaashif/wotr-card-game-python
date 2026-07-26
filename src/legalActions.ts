@@ -38,6 +38,13 @@ export type LegalPendingDecision =
       readonly choices: readonly string[];
     }
   | {
+      readonly type: "cycleFromHand";
+      readonly playerId: PlayerId;
+      readonly minimum: number;
+      readonly maximum: number;
+      readonly choices: readonly string[];
+    }
+  | {
       readonly type: "drawPlayCycleRest";
       readonly playerId: PlayerId;
       readonly drawnCards: readonly string[];
@@ -170,6 +177,19 @@ function legalPendingDecision(
             choices: decision.choices,
           }
         : null;
+    case "cycleFromHand": {
+      if (decision.playerId !== playerId) {
+        return null;
+      }
+      const choices = state.players[playerId].hand;
+      return {
+        type: decision.type,
+        playerId,
+        minimum: Math.min(decision.minimum, choices.length),
+        maximum: Math.min(decision.maximum, choices.length),
+        choices,
+      };
+    }
     case "drawPlayCycleRest":
       return decision.playerId === playerId
         ? {

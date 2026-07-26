@@ -10,6 +10,7 @@ import {
   tryActivatePathByChoice,
   tryReactivateBattleground,
   tryResolveForsakeDecision,
+  tryResolveCycleFromHandDecision,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 
@@ -443,6 +444,7 @@ describe("round location activation", () => {
     const base = createGame("old-forest-forsakes");
     const state = {
       ...base,
+      pendingDecisions: [],
       currentPathNumber: 2,
       activePath: {
         id: "inn-of-the-prancing-pony",
@@ -479,6 +481,7 @@ describe("round location activation", () => {
     const base = createGame("fords-forsake-draw");
     const state = {
       ...base,
+      pendingDecisions: [],
       currentPathNumber: 3,
       activePath: {
         id: "imladris-rivendel",
@@ -611,6 +614,77 @@ describe("round location activation", () => {
     if (result.ok) {
       expect(result.state.activePath?.attackTokens).toBe(1);
       expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("draws and then requires the printed hand cycle", () => {
+    const state = optionalPathState(
+      "gildor-draw-cycle",
+      "bag-end",
+      "gildors-encampment",
+      1,
+    );
+    const before = state.players.aragorn.hand.length;
+    const activated = activatePathById(
+      state,
+      "gildors-encampment",
+    );
+    expect(activated).not.toBeNull();
+    if (activated === null) {
+      return;
+    }
+    expect(activated.players.aragorn.hand).toHaveLength(before + 1);
+    expect(activated.pendingDecisions[0]).toMatchObject({
+      type: "cycleFromHand",
+      playerId: "aragorn",
+      minimum: 1,
+      maximum: 1,
+    });
+    const card = activated.players.aragorn.hand[0];
+    expect(card).toBeDefined();
+    if (card === undefined) {
+      return;
+    }
+
+    const result = tryResolveCycleFromHandDecision(
+      activated,
+      "aragorn",
+      [card],
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.aragorn.hand).toHaveLength(before);
+      expect(result.state.players.aragorn.cycle).toContain(card);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("queues Dimrill Dale's mandatory cycles for both Shadow players", () => {
+    const activated = activatePathById(
+      optionalPathState(
+        "dimrill-cycles",
+        "egladil",
+        "dimrill-dale",
+        5,
+      ),
+      "dimrill-dale",
+    );
+
+    expect(activated?.pendingDecisions).toMatchObject([
+      {
+        type: "cycleFromHand",
+        playerId: "witchKing",
+        minimum: 2,
+      },
+      {
+        type: "cycleFromHand",
+        playerId: "saruman",
+        minimum: 2,
+      },
+    ]);
+    if (activated !== null) {
+      expect(assertGameInvariants(activated)).toEqual([]);
     }
   });
 });
