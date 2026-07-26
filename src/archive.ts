@@ -21,8 +21,9 @@ import {
 } from "./publicView";
 import type { ForsakeSource, GameState, PlayerId, PlayDestination } from "./types";
 
-export const archiveVersion = 1;
-export const engineVersion = "engine-command-journal-v4";
+export const archiveVersion = 2;
+export const journalEventVersion = 1;
+export const engineVersion = "engine-command-journal-v5";
 export const rulesReferenceVersion = "rules-v1.1-cards-v0.2";
 export const rngVersion = "fnv1a-seed-mulberry32-v1";
 
@@ -70,6 +71,7 @@ export interface GameArchiveMetadata {
 }
 
 export interface JournalEvent {
+  readonly eventVersion: typeof journalEventVersion;
   readonly index: number;
   readonly command: GameCommand;
   readonly beforeStateHash: string;
@@ -92,6 +94,7 @@ export interface ReplayVerification {
 }
 
 export interface PublicJournalEvent {
+  readonly eventVersion: typeof journalEventVersion;
   readonly index: number;
   readonly command: Readonly<Record<string, unknown>>;
   readonly validationErrors: readonly string[];
@@ -146,6 +149,7 @@ export function appendCommand(archive: GameArchive, command: GameCommand): GameA
   const nextState = applyGameCommand(verification.finalState, command);
   const validationErrors = validateState(nextState);
   const event: JournalEvent = {
+    eventVersion: journalEventVersion,
     index: archive.events.length + 1,
     command,
     beforeStateHash: hashGameState(verification.finalState),
@@ -175,6 +179,11 @@ export function replayArchive(archive: GameArchive): ReplayVerification {
   }
 
   for (const event of archive.events) {
+    if (event.eventVersion !== journalEventVersion) {
+      errors.push(
+        `Event ${event.index} version mismatch: expected ${journalEventVersion}, got ${event.eventVersion}.`,
+      );
+    }
     const beforeStateHash = hashGameState(state);
     if (event.beforeStateHash !== beforeStateHash) {
       errors.push(
@@ -239,6 +248,11 @@ export function replayArchiveFromCheckpoint(
 
   let state = checkpointState;
   for (const event of archive.events.slice(checkpointEventCount)) {
+    if (event.eventVersion !== journalEventVersion) {
+      errors.push(
+        `Event ${event.index} version mismatch: expected ${journalEventVersion}, got ${event.eventVersion}.`,
+      );
+    }
     const beforeStateHash = hashGameState(state);
     if (event.beforeStateHash !== beforeStateHash) {
       errors.push(
@@ -274,6 +288,7 @@ export function createPublicArchive(
   const events: PublicJournalEvent[] = [];
   for (const event of archive.events) {
     events.push({
+      eventVersion: event.eventVersion,
       index: event.index,
       command: redactArchiveCommand(state, event.command, viewerId),
       validationErrors: event.validationErrors,

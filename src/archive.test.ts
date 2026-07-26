@@ -7,6 +7,7 @@ import {
   createGameArchive,
   currentArchiveMetadata,
   hashGameState,
+  journalEventVersion,
   replayArchive,
   replayArchiveFromCheckpoint,
 } from "./archive";
@@ -65,6 +66,32 @@ describe("game archives", () => {
 
     expect(replayArchive(changedMetadata).errors).toContain(
       "Archive metadata does not match the current engine/reference data.",
+    );
+  });
+
+  it("rejects an unsupported journal event version", () => {
+    const initial = createGame("archive-event-version");
+    const card = mustHave(initial.players.frodo.hand[0]);
+    const archive = createGameArchive("archive-event-version", [
+      { action: "cycle", player: "frodo", card },
+    ]);
+    const [event] = archive.events;
+    expect(event).toBeDefined();
+    if (event === undefined) {
+      return;
+    }
+    const changedVersion = {
+      ...archive,
+      events: [
+        {
+          ...event,
+          eventVersion: journalEventVersion + 1,
+        },
+      ],
+    } as unknown as GameArchive;
+
+    expect(replayArchive(changedVersion).errors).toContainEqual(
+      expect.stringContaining("version mismatch"),
     );
   });
 

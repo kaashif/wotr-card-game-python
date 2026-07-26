@@ -161,7 +161,7 @@ state after PR #22 and PR #23.
 
 ## Archive And Replay Hardening
 
-- [ ] Formalize event metadata versioning.
+- [x] Formalize event metadata versioning.
 - [ ] Replay all typed events.
 - [x] Detect rules/data/engine drift.
 - [ ] Persist failing fuzz sequences as compact archive fixtures.
