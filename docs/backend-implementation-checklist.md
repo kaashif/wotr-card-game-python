@@ -128,13 +128,13 @@ state after PR #22 and PR #23.
 
 ## Scoring And Game End
 
-- [ ] Fully implement scoring areas by side.
-- [ ] Store Shadow-scored paths facedown as VP reminders.
-- [ ] Keep corruption and Shadow score synchronized where rules require.
-- [ ] Implement early victory by 10-point gap.
-- [ ] Implement final scoring after Mount Doom / final path.
+- [x] Fully implement scoring areas by side.
+- [x] Store Shadow-scored paths facedown as VP reminders.
+- [x] Keep corruption and Shadow score synchronized where rules require.
+- [x] Implement early victory by 10-point gap.
+- [x] Implement final scoring after Mount Doom / final path.
 - [ ] Add unused Ring token VP for Trilogy final scoring.
-- [ ] Implement Trilogy tie rule.
+- [x] Implement Trilogy tie rule.
 - [ ] Implement Duel scoring differences.
 
 ## Scenarios

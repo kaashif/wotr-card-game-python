@@ -140,6 +140,12 @@ export interface CorruptionState {
   readonly tokens: number;
 }
 
+export interface GameOutcome {
+  readonly winner: Side;
+  readonly reason: "early-score-gap" | "final-scoring";
+  readonly finalScore: ScoreState;
+}
+
 export interface LogEntry {
   readonly id: number;
   readonly message: string;
@@ -213,7 +219,8 @@ export type GameEvent =
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
   | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision }
-  | { readonly type: "pendingDecisionResolved"; readonly decisionType: PendingDecision["type"]; readonly playerId?: PlayerId };
+  | { readonly type: "pendingDecisionResolved"; readonly decisionType: PendingDecision["type"]; readonly playerId?: PlayerId }
+  | { readonly type: "gameEnded"; readonly outcome: GameOutcome };
 
 export interface GameState {
   readonly schemaVersion: 1;
@@ -237,6 +244,7 @@ export interface GameState {
   readonly scoringAreas: ScoringAreaState;
   readonly corruption: CorruptionState;
   readonly score: ScoreState;
+  readonly outcome: GameOutcome | null;
   readonly log: readonly LogEntry[];
   readonly selection: SelectionState;
 }

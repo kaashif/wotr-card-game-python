@@ -64,5 +64,6 @@ function normalizeGameState(state: GameState): GameState {
       paths: { free: [], shadow: [] },
     },
     corruption: state.corruption ?? { tokens: 0 },
+    outcome: state.outcome ?? null,
   };
 }

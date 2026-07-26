@@ -139,6 +139,7 @@ export function createGame(seed = String(Date.now())): GameState {
     },
     corruption: { tokens: 0 },
     score: { free: 0, shadow: 0 },
+    outcome: null,
     log: [],
     selection: { playerId: "frodo", cardId: null },
   };
@@ -1259,14 +1260,28 @@ export function tryResolveCombatLossDecision(
     decisionType: decision.type,
   });
   nextState = appendEvents(nextState, events);
+  if (
+    decision.resumeCombat === true ||
+    decision.activatePathAfterResolution !== undefined
+  ) {
+    nextState =
+      decision.locationType === "path"
+        ? { ...nextState, activePath: null }
+        : advanceBattlegroundQueue(nextState);
+  }
+  const eventCountBeforeVictoryCheck = nextState.eventLog.length;
+  nextState = applyEarlyVictory(nextState);
+  if (nextState.phase === "gameOver") {
+    events.push(
+      ...nextState.eventLog.slice(eventCountBeforeVictoryCheck),
+    );
+    return { ok: true, state: nextState, events };
+  }
 
   if (decision.activatePathAfterResolution !== undefined) {
     const pathId = decision.activatePathAfterResolution;
     const replacedPathId = decision.locationId;
-    const activated = activatePathById(
-      { ...nextState, activePath: null },
-      pathId,
-    );
+    const activated = activatePathById(nextState, pathId);
     if (activated !== null) {
       const activationEvent: GameEvent = {
         type: "pathActivated",
@@ -1277,11 +1292,7 @@ export function tryResolveCombatLossDecision(
       events.push(activationEvent);
     }
   } else if (decision.resumeCombat === true) {
-    nextState = resolveCombat(
-      decision.locationType === "path"
-        ? { ...nextState, activePath: null }
-        : advanceBattlegroundQueue(nextState),
-    );
+    nextState = resolveCombat(nextState);
   }
   return { ok: true, state: nextState, events };
 }
@@ -1302,6 +1313,10 @@ export function resolveCombat(state: GameState): GameState {
       return nextState;
     }
     nextState = advanceBattlegroundQueue(nextState);
+    nextState = applyEarlyVictory(nextState);
+    if (nextState.phase === "gameOver") {
+      return nextState;
+    }
     if (nextState.activeBattleground !== null) {
       return resolveCombat(nextState);
     }
@@ -1314,19 +1329,15 @@ export function resolveCombat(state: GameState): GameState {
     if (nextState.pendingDecisions.length > pendingCount) {
       return nextState;
     }
+    nextState = { ...nextState, activePath: null };
+    nextState = applyEarlyVictory(nextState);
+    if (nextState.phase === "gameOver") {
+      return nextState;
+    }
   }
 
   if (nextState.currentPathNumber >= 9) {
-    return addLog(
-      {
-        ...nextState,
-        phase: "gameOver",
-        activeBattleground: null,
-        additionalActiveBattlegrounds: [],
-        activePath: null,
-      },
-      "Game over after Mount Doom.",
-    );
+    return finishGame(nextState, finalWinner(nextState), "final-scoring");
   }
 
   nextState = executeDrawStep(nextState);
@@ -1343,6 +1354,49 @@ export function resolveCombat(state: GameState): GameState {
       passed: false,
     })),
   });
+}
+
+function applyEarlyVictory(state: GameState): GameState {
+  const gap = state.score.free - state.score.shadow;
+  if (Math.abs(gap) < 10) {
+    return state;
+  }
+  return finishGame(
+    state,
+    gap > 0 ? "free" : "shadow",
+    "early-score-gap",
+  );
+}
+
+function finalWinner(state: GameState): Side {
+  return state.score.free > state.score.shadow ? "free" : "shadow";
+}
+
+function finishGame(
+  state: GameState,
+  winner: Side,
+  reason: "early-score-gap" | "final-scoring",
+): GameState {
+  if (state.outcome !== null) {
+    return state;
+  }
+  const outcome = {
+    winner,
+    reason,
+    finalScore: state.score,
+  } as const;
+  return addLog(
+    {
+      ...state,
+      phase: "gameOver",
+      outcome,
+      eventLog: [
+        ...state.eventLog,
+        { type: "gameEnded", outcome },
+      ],
+    },
+    `${winnerLabel(winner)} won ${state.score.free}-${state.score.shadow} (${reason}).`,
+  );
 }
 
 export function discardOversizedHands(state: GameState): GameState {

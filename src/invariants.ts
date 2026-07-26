@@ -52,6 +52,19 @@ export function assertGameInvariants(state: GameState): readonly string[] {
   if (state.score.free < 0 || state.score.shadow < 0) {
     errors.push("Scores cannot be negative.");
   }
+  if (state.outcome !== null) {
+    if (state.phase !== "gameOver") {
+      errors.push("A completed outcome requires the game-over phase.");
+    }
+    if (
+      state.outcome.finalScore.free !== state.score.free ||
+      state.outcome.finalScore.shadow !== state.score.shadow
+    ) {
+      errors.push("The game outcome must preserve the final score.");
+    }
+  } else if (state.phase === "gameOver") {
+    errors.push("The game-over phase requires a typed outcome.");
+  }
 
   for (const side of ["free", "shadow"] as const) {
     for (const battlegroundId of state.scoringAreas.battlegrounds[side]) {
