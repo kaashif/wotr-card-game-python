@@ -17,6 +17,7 @@ import {
   selectPlayer,
   tryMoveFromReserve,
   tryPass,
+  tryPlayCard,
   tryWinnow,
   tryForsake,
   usePlayerRingToken,
@@ -310,6 +311,87 @@ describe("game engine", () => {
 
     expect(canPlayTo(freeBattleground, playerId, mouth, "path")).toBe(true);
     expect(canPlayTo(freeBattleground, playerId, eye, "path")).toBe(true);
+  });
+
+  it("applies typed when-played draw effects", () => {
+    const aragornState = {
+      ...setPlayerZones(createGame("boromir-when-played"), "aragorn", {
+        hand: ["aragorn-boromir-39-1", "aragorn-denethor-40-1"],
+        draw: ["aragorn-faramir-41-1"],
+        cycle: [],
+      }),
+      activePlayer: "aragorn" as const,
+      pendingDecisions: [],
+    };
+
+    const boromir = tryPlayCard(
+      aragornState,
+      "aragorn",
+      "aragorn-boromir-39-1",
+      "reserve",
+      "aragorn-denethor-40-1",
+    );
+
+    expect(boromir.ok).toBe(true);
+    if (boromir.ok) {
+      expect(boromir.state.players.aragorn.hand).toContain(
+        "aragorn-faramir-41-1",
+      );
+      expect(boromir.events).toContainEqual({
+        type: "cardsDrawn",
+        playerId: "aragorn",
+        count: 1,
+      });
+      expect(validateState(boromir.state)).toEqual([]);
+    }
+
+    const shadowBase = createGame("lidless-eye-when-played");
+    const shadowState = {
+      ...setPlayerZones(shadowBase, "witchKing", {
+        hand: [
+          "witchKing-the-lidless-eye-156-1",
+          "witchKing-trolls-of-udun-137-1",
+        ],
+        draw: ["witchKing-mouth-of-sauron-154-1"],
+        cycle: [],
+      }),
+      activePlayer: "witchKing" as const,
+      pendingDecisions: [],
+    };
+    const sarumanHand = shadowState.players.saruman.hand.length;
+
+    const eye = tryPlayCard(
+      shadowState,
+      "witchKing",
+      "witchKing-the-lidless-eye-156-1",
+      "reserve",
+      "witchKing-trolls-of-udun-137-1",
+    );
+
+    expect(eye.ok).toBe(true);
+    if (eye.ok) {
+      expect(eye.state.players.witchKing.hand).toContain(
+        "witchKing-mouth-of-sauron-154-1",
+      );
+      expect(eye.state.players.saruman.hand).toHaveLength(
+        sarumanHand + 1,
+      );
+      expect(eye.events).toEqual(
+        expect.arrayContaining([
+          {
+            type: "cardsDrawn",
+            playerId: "witchKing",
+            count: 1,
+          },
+          {
+            type: "cardsDrawn",
+            playerId: "saruman",
+            count: 1,
+          },
+        ]),
+      );
+      expect(validateState(eye.state)).toEqual([]);
+    }
   });
 
   it("winnows two hand cards, honoring elimination replacements, and draws one", () => {

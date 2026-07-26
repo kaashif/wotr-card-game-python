@@ -175,7 +175,11 @@ describe("compact game scripts", () => {
     const paid = resolveCardRef(state, card.owner, cost.id);
 
     expect(result.finalState.players[card.owner].reserve).toContain(played);
-    expect(result.finalState.players[card.owner].cycle).toContain(paid);
+    if (/when played.*draws? 1 card/i.test(card.text)) {
+      expect(result.finalState.players[card.owner].hand).toContain(paid);
+    } else {
+      expect(result.finalState.players[card.owner].cycle).toContain(paid);
+    }
     expect(result.frames.every((frame) => frame.errors.length === 0)).toBe(true);
   });
 

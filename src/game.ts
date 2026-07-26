@@ -372,9 +372,14 @@ export function tryPlayCard(
     });
   }
   const nextState = playCard(state, playerId, instanceId, destination, costCardId);
-  return accepted(nextState, [
+  const finalState = appendEvents(nextState, [
     { type: "cardPlayed", playerId, cardId: instanceId, destination },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function playCard(
@@ -454,7 +459,7 @@ export function playCard(
   }
 
   return addLog(
-    nextState,
+    applyWhenPlayedDrawEffects(nextState, playerId, instanceId),
     `${players[playerId].name} played ${cardDef.title} to ${destination}.`,
   );
 }
@@ -510,9 +515,14 @@ export function tryAttachItem(
   }
 
   const nextState = attachItem(state, playerId, itemId, wielderId, costCardId);
-  return accepted(nextState, [
+  const finalState = appendEvents(nextState, [
     { type: "itemAttached", playerId, itemId, wielderId },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function canAttachItemTo(
@@ -573,7 +583,11 @@ export function attachItem(
 
   const itemDef = getCardDefinition(getCard(state, itemId).cardId);
   return addLog(
-    rememberCharacterOrItemPlayed(nextState, itemDef.id),
+    applyWhenPlayedDrawEffects(
+      rememberCharacterOrItemPlayed(nextState, itemDef.id),
+      playerId,
+      itemId,
+    ),
     `${players[playerId].name} attached ${itemDef.title}.`,
   );
 }
@@ -2470,6 +2484,30 @@ function executeDrawStep(state: GameState): GameState {
   );
 }
 
+function applyWhenPlayedDrawEffects(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  const recipients: readonly PlayerId[] =
+    text.includes("when played each sp draws 1 card")
+      ? ["witchKing", "saruman"]
+      : text.includes("when played draw 1 card")
+        ? [playerId]
+        : [];
+  return recipients.reduce((nextState, recipient) => {
+    const handSize = nextState.players[recipient].hand.length;
+    const drawnState = drawCards(nextState, recipient, 1);
+    const drawn = drawnState.players[recipient].hand.length - handSize;
+    return drawn > 0
+      ? appendEvents(drawnState, [
+          { type: "cardsDrawn", playerId: recipient, count: drawn },
+        ])
+      : drawnState;
+  }, state);
+}
+
 export function drawCountForPlayer(
   state: GameState,
   playerId: PlayerId,
@@ -3072,7 +3110,7 @@ function playDrawnCardWithoutCost(
     nextState = rememberCharacterOrItemPlayed(nextState, card.id);
   }
   return addLog(
-    nextState,
+    applyWhenPlayedDrawEffects(nextState, playerId, play.cardId),
     `${players[playerId].name} played ${card.title} to ${play.destination} from a card-effect draw.`,
   );
 }
