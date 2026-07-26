@@ -181,6 +181,9 @@ export type PendingDecision =
       readonly playerId: PlayerId;
       readonly zones: readonly Zone[];
       readonly choices: readonly string[];
+      readonly minimum: number;
+      readonly maximum: number;
+      readonly destination: "hand" | "cycle" | "eliminated";
       readonly source?: string;
     };
 

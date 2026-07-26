@@ -5,6 +5,7 @@ import {
   enqueuePendingDecision,
   tryPass,
   tryResolveForsakeDecision,
+  tryResolveSearchDecision,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 import type { GameState, PlayerId } from "./types";
@@ -153,6 +154,99 @@ describe("pending decision commands", () => {
       ok: false,
       state,
       violation: { code: "pending-decision-required" },
+    });
+  });
+
+  it("takes an offered search result into hand and reshuffles the draw deck", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("resolve-search");
+    const selected = base.players[playerId].draw[2];
+    expect(selected).toBeDefined();
+    if (selected === undefined) {
+      return;
+    }
+    const originalDraw = base.players[playerId].draw;
+    const state = enqueuePendingDecision(base, {
+      type: "search",
+      playerId,
+      zones: ["draw"],
+      choices: originalDraw.slice(0, 4),
+      minimum: 1,
+      maximum: 1,
+      destination: "hand",
+      source: "test:take-from-draw",
+    });
+
+    const result = tryResolveSearchDecision(state, playerId, [selected]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players[playerId].hand).toContain(selected);
+      expect(result.state.players[playerId].draw).not.toContain(selected);
+      expect(result.state.players[playerId].draw).not.toEqual(
+        originalDraw.filter((cardId) => cardId !== selected),
+      );
+      expect(result.state.pendingDecisions).toEqual([]);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("supports optional searches and alternate destinations", () => {
+    const playerId: PlayerId = "aragorn";
+    const base = createGame("optional-search");
+    const selected = base.players[playerId].cycle[0];
+    expect(selected).toBeDefined();
+    if (selected === undefined) {
+      return;
+    }
+    const optional = enqueuePendingDecision(base, {
+      type: "search",
+      playerId,
+      zones: ["cycle"],
+      choices: [selected],
+      minimum: 0,
+      maximum: 1,
+      destination: "eliminated",
+    });
+
+    const skipped = tryResolveSearchDecision(optional, playerId, []);
+    const chosen = tryResolveSearchDecision(optional, playerId, [selected]);
+
+    expect(skipped.ok).toBe(true);
+    expect(chosen.ok).toBe(true);
+    if (chosen.ok) {
+      expect(chosen.state.players[playerId].cycle).not.toContain(selected);
+      expect(chosen.state.players[playerId].eliminated).toContain(selected);
+      expect(assertGameInvariants(chosen.state)).toEqual([]);
+    }
+  });
+
+  it("rejects unoffered and duplicate search selections atomically", () => {
+    const playerId: PlayerId = "saruman";
+    const base = createGame("invalid-search");
+    const offered = base.players[playerId].draw[0];
+    const unoffered = base.players[playerId].draw[1];
+    expect(offered).toBeDefined();
+    expect(unoffered).toBeDefined();
+    if (offered === undefined || unoffered === undefined) {
+      return;
+    }
+    const state = enqueuePendingDecision(base, {
+      type: "search",
+      playerId,
+      zones: ["draw"],
+      choices: [offered],
+      minimum: 1,
+      maximum: 1,
+      destination: "hand",
+    });
+
+    const result = tryResolveSearchDecision(state, playerId, [unoffered]);
+
+    expect(result).toMatchObject({
+      ok: false,
+      state,
+      violation: { code: "invalid-decision-choice" },
     });
   });
 });

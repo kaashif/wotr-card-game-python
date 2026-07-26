@@ -24,6 +24,7 @@ import type {
   PlayerState,
   RuleViolation,
   Side,
+  Zone,
 } from "./types";
 
 const startingHandSize = 7;
@@ -889,6 +890,92 @@ export function tryResolveForsakeDecision(
   return accepted(nextState, events);
 }
 
+export function tryResolveSearchDecision(
+  state: GameState,
+  playerId: PlayerId,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "search") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not search.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  if (
+    selectedCards.length < decision.minimum ||
+    selectedCards.length > decision.maximum
+  ) {
+    return rejected(state, {
+      code: "insufficient-decision-choices",
+      message: `Select between ${decision.minimum} and ${decision.maximum} search results.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+  if (
+    new Set(selectedCards).size !== selectedCards.length ||
+    selectedCards.some(
+      (instanceId) =>
+        !decision.choices.includes(instanceId) ||
+        !isCardInSearchZones(
+          state,
+          playerId,
+          instanceId,
+          decision.zones,
+        ),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Every selected card must be a distinct offered search result.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const searchedDrawDeck = selectedCards.some((instanceId) =>
+    state.players[playerId].draw.includes(instanceId),
+  );
+  let nextState = selectedCards.reduce(
+    (current, instanceId) =>
+      relocateCard(current, playerId, instanceId, decision.destination),
+    state,
+  );
+  if (searchedDrawDeck) {
+    const player = nextState.players[playerId];
+    nextState = updatePlayer(nextState, playerId, (current) => ({
+      ...current,
+      draw: shuffle(
+        player.draw,
+        mulberry32(
+          hashSeed(
+            `${state.seed}:search:${state.eventLog.length}:${playerId}`,
+          ),
+        ),
+      ),
+    }));
+  }
+  nextState = resolveOldestPendingDecision(nextState);
+  return accepted(nextState, [
+    {
+      type: "pendingDecisionResolved",
+      decisionType: decision.type,
+      playerId,
+    },
+  ]);
+}
+
 export function nextTurn(state: GameState): GameState {
   return {
     ...state,
@@ -1559,6 +1646,32 @@ function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation
   return null;
 }
 
+function isCardInSearchZones(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  zones: readonly Zone[],
+): boolean {
+  if (findOwner(state, instanceId) !== playerId) {
+    return false;
+  }
+  const player = state.players[playerId];
+  return zones.some((zone) => {
+    switch (zone) {
+      case "draw":
+      case "hand":
+      case "cycle":
+      case "eliminated":
+      case "reserve":
+        return player[zone].includes(instanceId);
+      case "battleground":
+        return state.activeBattleground?.cards.includes(instanceId) ?? false;
+      case "path":
+        return state.activePath?.cards.includes(instanceId) ?? false;
+    }
+  });
+}
+
 function availableForsakeCount(state: GameState, playerId: PlayerId): number {
   const player = state.players[playerId];
   return (
@@ -1567,6 +1680,38 @@ function availableForsakeCount(state: GameState, playerId: PlayerId): number {
     player.draw.length +
     player.cycle.length
   );
+}
+
+function relocateCard(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: "hand" | "cycle" | "eliminated",
+): GameState {
+  const withoutAttachment = stripEmptyAttachmentLists(
+    removeAttachmentLinks(state, [instanceId]),
+  );
+  const withoutSharedZone = removeFromSharedPlayZones(
+    withoutAttachment,
+    instanceId,
+  );
+  return updatePlayer(withoutSharedZone, playerId, (player) => ({
+    ...player,
+    draw: removeOne(player.draw, instanceId),
+    hand:
+      destination === "hand"
+        ? uniqueAppend(removeOne(player.hand, instanceId), instanceId)
+        : removeOne(player.hand, instanceId),
+    cycle:
+      destination === "cycle"
+        ? uniqueAppend(removeOne(player.cycle, instanceId), instanceId)
+        : removeOne(player.cycle, instanceId),
+    reserve: removeOne(player.reserve, instanceId),
+    eliminated:
+      destination === "eliminated"
+        ? uniqueAppend(removeOne(player.eliminated, instanceId), instanceId)
+        : removeOne(player.eliminated, instanceId),
+  }));
 }
 
 function accepted(state: GameState, events: readonly GameEvent[]): CommandResult {
