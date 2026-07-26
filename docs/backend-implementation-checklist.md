@@ -133,7 +133,7 @@ state after PR #22 and PR #23.
 - [x] Keep corruption and Shadow score synchronized where rules require.
 - [x] Implement early victory by 10-point gap.
 - [x] Implement final scoring after Mount Doom / final path.
-- [ ] Add unused Ring token VP for Trilogy final scoring.
+- [x] Add unused Ring token VP for Trilogy final scoring.
 - [x] Implement Trilogy tie rule.
 - [ ] Implement Duel scoring differences.
 

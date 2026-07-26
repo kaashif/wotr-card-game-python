@@ -1369,7 +1369,8 @@ export function resolveCombat(state: GameState): GameState {
   }
 
   if (nextState.currentPathNumber >= 9) {
-    return finishGame(nextState, finalWinner(nextState), "final-scoring");
+    const finalState = scoreUnusedRingTokens(nextState);
+    return finishGame(finalState, finalWinner(finalState), "final-scoring");
   }
 
   nextState = executeDrawStep(nextState);
@@ -1402,6 +1403,26 @@ function applyEarlyVictory(state: GameState): GameState {
 
 function finalWinner(state: GameState): Side {
   return state.score.free > state.score.shadow ? "free" : "shadow";
+}
+
+function scoreUnusedRingTokens(state: GameState): GameState {
+  const points: Record<Side, number> = { free: 0, shadow: 0 };
+  for (const playerId of turnOrder) {
+    if (!state.players[playerId].usedRingToken) {
+      points[players[playerId].side] += 1;
+    }
+  }
+  return {
+    ...state,
+    score: {
+      free: state.score.free + points.free,
+      shadow: state.score.shadow + points.shadow,
+    },
+    eventLog: [
+      ...state.eventLog,
+      { type: "unusedRingTokensScored", points },
+    ],
+  };
 }
 
 function finishGame(

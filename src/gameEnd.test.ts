@@ -54,7 +54,41 @@ describe("game end", () => {
     expect(next.outcome).toEqual({
       winner: "shadow",
       reason: "final-scoring",
-      finalScore: { free: 8, shadow: 8 },
+      finalScore: { free: 10, shadow: 10 },
+    });
+    expect(assertGameInvariants(next)).toEqual([]);
+  });
+
+  it("adds each unused Trilogy Ring token to its side at final scoring", () => {
+    const base = createGame("final-ring-tokens");
+    const state = {
+      ...base,
+      phase: "combat" as const,
+      currentPathNumber: 9,
+      activeBattleground: null,
+      additionalActiveBattlegrounds: [],
+      activePath: null,
+      score: { free: 7, shadow: 8 },
+      players: {
+        ...base.players,
+        witchKing: {
+          ...base.players.witchKing,
+          usedRingToken: true,
+        },
+      },
+    };
+
+    const next = resolveCombat(state);
+
+    expect(next.score).toEqual({ free: 9, shadow: 9 });
+    expect(next.outcome).toEqual({
+      winner: "shadow",
+      reason: "final-scoring",
+      finalScore: { free: 9, shadow: 9 },
+    });
+    expect(next.eventLog).toContainEqual({
+      type: "unusedRingTokensScored",
+      points: { free: 2, shadow: 1 },
     });
     expect(assertGameInvariants(next)).toEqual([]);
   });

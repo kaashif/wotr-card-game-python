@@ -217,6 +217,7 @@ export type GameEvent =
   | { readonly type: "battlegroundActivated"; readonly battlegroundId: string; readonly reactivated: boolean; readonly ignorePrintedDefense: boolean }
   | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
+  | { readonly type: "unusedRingTokensScored"; readonly points: ScoreState }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
   | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision }
   | { readonly type: "pendingDecisionResolved"; readonly decisionType: PendingDecision["type"]; readonly playerId?: PlayerId }
