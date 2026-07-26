@@ -6,6 +6,7 @@ import {
   getCard,
   getCardDefinition,
   tryPass,
+  tryResolveCombatLossDecision,
   tryResolveDrawPlayCycleRestDecision,
   tryResolveForsakeDecision,
   tryResolveSearchDecision,
@@ -350,6 +351,76 @@ describe("pending decision commands", () => {
       violation: { code: "invalid-destination" },
     });
   });
+
+  it("resolves a valid defender casualty choice and cycles survivors", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("combat-loss-choice");
+    const defenders = ownedPathDefenders(base, playerId, 2);
+    expect(defenders).toHaveLength(2);
+    if (defenders.length !== 2 || base.activePath === null) {
+      return;
+    }
+    const [eliminated, survivor] = defenders;
+    if (eliminated === undefined || survivor === undefined) {
+      return;
+    }
+    const arranged = placeOnActivePath(base, playerId, defenders);
+    const state = enqueuePendingDecision(arranged, {
+      type: "combatLosses",
+      side: "free",
+      locationType: "path",
+      locationId: base.activePath.id,
+      attackToCancel: 1,
+      candidates: defenders,
+      source: "test:path-combat",
+    });
+
+    const result = tryResolveCombatLossDecision(state, [eliminated]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players[playerId].eliminated).toContain(eliminated);
+      expect(result.state.players[playerId].cycle).toContain(survivor);
+      expect(result.state.activePath?.cards).toEqual([]);
+      expect(result.state.pendingDecisions).toEqual([]);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("rejects combat losses that cancel too little or eliminate extras", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("invalid-combat-loss-choice");
+    const defenders = ownedPathDefenders(base, playerId, 2);
+    expect(defenders).toHaveLength(2);
+    if (defenders.length !== 2 || base.activePath === null) {
+      return;
+    }
+    const state = enqueuePendingDecision(
+      placeOnActivePath(base, playerId, defenders),
+      {
+        type: "combatLosses",
+        side: "free",
+        locationType: "path",
+        locationId: base.activePath.id,
+        attackToCancel: 1,
+        candidates: defenders,
+      },
+    );
+
+    const tooLittle = tryResolveCombatLossDecision(state, []);
+    const tooMany = tryResolveCombatLossDecision(state, defenders);
+
+    expect(tooLittle).toMatchObject({
+      ok: false,
+      state,
+      violation: { code: "invalid-decision-choice" },
+    });
+    expect(tooMany).toMatchObject({
+      ok: false,
+      state,
+      violation: { code: "invalid-decision-choice" },
+    });
+  });
 });
 
 function moveToReserve(
@@ -430,4 +501,51 @@ function ownedCardOtherThan(
     const card = getCardDefinition(getCard(state, instanceId).cardId);
     return card.owner === playerId && instanceId !== excluded;
   });
+}
+
+function ownedPathDefenders(
+  state: GameState,
+  playerId: PlayerId,
+  count: number,
+): readonly string[] {
+  return Object.keys(state.cards)
+    .filter((instanceId) => {
+      const card = getCardDefinition(getCard(state, instanceId).cardId);
+      return (
+        card.owner === playerId &&
+        card.type === "character" &&
+        card.pathIcons > 0
+      );
+    })
+    .slice(0, count);
+}
+
+function placeOnActivePath(
+  state: GameState,
+  playerId: PlayerId,
+  instanceIds: readonly string[],
+): GameState {
+  if (state.activePath === null) {
+    return state;
+  }
+  const moved = new Set(instanceIds);
+  const player = state.players[playerId];
+  return {
+    ...state,
+    activePath: {
+      ...state.activePath,
+      cards: [...state.activePath.cards, ...instanceIds],
+    },
+    players: {
+      ...state.players,
+      [playerId]: {
+        ...player,
+        draw: player.draw.filter((cardId) => !moved.has(cardId)),
+        hand: player.hand.filter((cardId) => !moved.has(cardId)),
+        cycle: player.cycle.filter((cardId) => !moved.has(cardId)),
+        eliminated: player.eliminated.filter((cardId) => !moved.has(cardId)),
+        reserve: player.reserve.filter((cardId) => !moved.has(cardId)),
+      },
+    },
+  };
 }

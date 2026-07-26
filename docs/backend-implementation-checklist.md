@@ -10,7 +10,7 @@ state after PR #22 and PR #23.
 - [ ] Ensure every accepted command emits event records.
 - [ ] Ensure every rejected command preserves the state hash.
 - [ ] Define stable command APIs for player actions.
-- [ ] Define stable command APIs for pending decisions.
+- [x] Define stable command APIs for pending decisions.
 - [ ] Define stable command APIs for card-text choices.
 
 ## Pending Decisions

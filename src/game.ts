@@ -1061,6 +1061,72 @@ export function tryResolveDrawPlayCycleRestDecision(
   return accepted(nextState, events);
 }
 
+export function tryResolveCombatLossDecision(
+  state: GameState,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "combatLosses") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not combat losses.`,
+    });
+  }
+  const activeLocation =
+    decision.locationType === "path"
+      ? state.activePath
+      : state.activeBattleground;
+  if (
+    activeLocation?.id !== decision.locationId ||
+    decision.candidates.some(
+      (instanceId) => !activeLocation.cards.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "The combat-loss decision no longer matches the active location.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const validSelections = validCombatLossSelections(state, decision);
+  if (
+    new Set(selectedCards).size !== selectedCards.length ||
+    !validSelections.some((selection) => sameCardSet(selection, selectedCards))
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Those defenders do not cancel as much attack as the rules require.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const survivors = decision.candidates.filter(
+    (instanceId) => !selectedCards.includes(instanceId),
+  );
+  let nextState = cycleCards(
+    eliminateCards(state, selectedCards),
+    survivors,
+  );
+  nextState = resolveOldestPendingDecision(nextState);
+  const events: GameEvent[] = selectedCards.map((cardId) => ({
+    type: "cardEliminated",
+    playerId: getCardDefinition(getCard(state, cardId).cardId).owner,
+    cardId,
+  }));
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+  });
+  return accepted(nextState, events);
+}
+
 export function nextTurn(state: GameState): GameState {
   return {
     ...state,
@@ -1769,6 +1835,60 @@ function canPlayDrawnCardWithoutCost(
   return (
     (card.type !== "character" && card.type !== "item") ||
     !state.roundMemory.playedCharacterOrItemCards.includes(card.id)
+  );
+}
+
+function validCombatLossSelections(
+  state: GameState,
+  decision: Extract<PendingDecision, { readonly type: "combatLosses" }>,
+): readonly (readonly string[])[] {
+  if (decision.attackToCancel <= 0) {
+    return [[]];
+  }
+  const candidates = [...decision.candidates];
+  const totalDefense = candidates.reduce(
+    (sum, instanceId) =>
+      sum + defenseIconsFor(state, instanceId, decision.locationType),
+    0,
+  );
+  if (totalDefense <= decision.attackToCancel) {
+    return [candidates];
+  }
+
+  const selections: string[][] = [];
+  for (let mask = 1; mask < 2 ** candidates.length; mask += 1) {
+    const selection = candidates.filter(
+      (_instanceId, index) => (mask & (1 << index)) !== 0,
+    );
+    const defense = selection.reduce(
+      (sum, instanceId) =>
+        sum + defenseIconsFor(state, instanceId, decision.locationType),
+      0,
+    );
+    if (defense < decision.attackToCancel) {
+      continue;
+    }
+    const hasUnnecessaryDefender = selection.some((removed) => {
+      return (
+        defense -
+          defenseIconsFor(state, removed, decision.locationType) >=
+        decision.attackToCancel
+      );
+    });
+    if (!hasUnnecessaryDefender) {
+      selections.push(selection);
+    }
+  }
+  return selections;
+}
+
+function sameCardSet(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((instanceId) => right.includes(instanceId))
   );
 }
 
