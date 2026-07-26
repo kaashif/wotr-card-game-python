@@ -524,7 +524,118 @@ describe("round location activation", () => {
       expect(assertGameInvariants(result.state)).toEqual([]);
     }
   });
+
+  it("lets a player decline an optional location forsake without its benefit", () => {
+    const activated = activatePathById(
+      optionalPathState("decline-osgiliath", "the-cross-roads", "osgiliath", 7),
+      "osgiliath",
+    );
+    expect(activated?.pendingDecisions[0]).toMatchObject({
+      type: "forsake",
+      playerId: "aragorn",
+      minimum: 0,
+      maximum: 1,
+    });
+    if (activated === null) {
+      return;
+    }
+    const before = activated.players.aragorn.hand.length;
+
+    const result = tryResolveForsakeDecision(activated, "aragorn", []);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.aragorn.hand).toHaveLength(before);
+      expect(result.state.pendingDecisions).toEqual([]);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("grants an optional location benefit only after a forsake", () => {
+    const activated = activatePathById(
+      optionalPathState("accept-osgiliath", "the-cross-roads", "osgiliath", 7),
+      "osgiliath",
+    );
+    expect(activated).not.toBeNull();
+    if (activated === null) {
+      return;
+    }
+    const card = activated.players.aragorn.hand[0];
+    expect(card).toBeDefined();
+    if (card === undefined) {
+      return;
+    }
+    const before = activated.players.aragorn.hand.length;
+
+    const result = tryResolveForsakeDecision(activated, "aragorn", [
+      { source: "hand", cardId: card },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.aragorn.hand).toHaveLength(before + 2);
+      expect(result.events).toContainEqual({
+        type: "cardsDrawn",
+        playerId: "aragorn",
+        count: 3,
+      });
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("adds a Doors of Durin attack marker only when its cost is paid", () => {
+    const activated = activatePathById(
+      optionalPathState(
+        "doors-of-durin-option",
+        "caradhras",
+        "the-doors-of-durin",
+        4,
+      ),
+      "the-doors-of-durin",
+    );
+    expect(activated).not.toBeNull();
+    if (activated === null) {
+      return;
+    }
+    const card = activated.players.saruman.hand[0];
+    expect(card).toBeDefined();
+    if (card === undefined) {
+      return;
+    }
+
+    const result = tryResolveForsakeDecision(activated, "saruman", [
+      { source: "hand", cardId: card },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.activePath?.attackTokens).toBe(1);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
 });
+
+function optionalPathState(
+  seed: string,
+  activePathId: string,
+  nextPathId: string,
+  pathNumberValue: number,
+) {
+  const base = createGame(seed);
+  return {
+    ...base,
+    pendingDecisions: [],
+    currentPathNumber: pathNumberValue,
+    activePath: {
+      id: activePathId,
+      cards: [],
+      attackTokens: 0,
+      defenseTokens: 0,
+    },
+    pathDeck: [nextPathId],
+    activatedPaths: [activePathId],
+  };
+}
 
 function pathNumber(pathId: string | undefined): number | undefined {
   return pathDefinitions.find((path) => path.id === pathId)?.pathNumber;

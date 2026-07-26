@@ -282,6 +282,7 @@ describe("game engine", () => {
         cycle: [],
       }),
       activePlayer: playerId,
+      pendingDecisions: [],
     };
 
     const result = tryWinnow(state, playerId, first, second);

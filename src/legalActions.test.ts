@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { createGame, enqueuePendingDecision } from "./game";
+import {
+  createGame as createEngineGame,
+  enqueuePendingDecision,
+} from "./game";
 import { getLegalActions } from "./legalActions";
+import type { GameState } from "./types";
+
+function createGame(seed: string): GameState {
+  return { ...createEngineGame(seed), pendingDecisions: [] };
+}
 
 describe("legal actions", () => {
   it("exposes exact hand destinations and pass legality for the active player", () => {

@@ -116,7 +116,10 @@ describe("engine invariants", () => {
   });
 
   it("queues and resolves typed pending decisions without mutating card locations", () => {
-    const state = createGame("pending-decision");
+    const state = {
+      ...createGame("pending-decision"),
+      pendingDecisions: [],
+    };
     const decision = {
       type: "forsake" as const,
       playerId: "frodo" as const,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { pathDefinitions } from "./data";
 import {
-  createGame,
+  createGame as createEngineGame,
   eligiblePathsByNumber,
   enqueuePendingDecision,
   getCard,
@@ -17,6 +17,10 @@ import {
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 import type { GameState, PlayerId } from "./types";
+
+function createGame(seed: string): GameState {
+  return { ...createEngineGame(seed), pendingDecisions: [] };
+}
 
 describe("pending decision commands", () => {
   it("resolves a multi-card forsake choice from hand and reserve", () => {

@@ -19,7 +19,7 @@ state after PR #22 and PR #23.
 - [x] Implement defender casualty/loss assignment as pending decisions.
 - [x] Implement draw N / play up to M / cycle rest choices.
 - [x] Implement search/take/reveal choices.
-- [ ] Implement optional `may` effects.
+- [x] Implement optional `may` effects.
 - [ ] Implement combat order choices.
 - [ ] Implement opponent-choice fallback when defenders cannot agree.
 
@@ -51,11 +51,11 @@ state after PR #22 and PR #23.
 - [ ] Implement all path activation text.
 - [ ] Implement all battleground activation text.
 - [ ] Implement location draw effects.
-- [ ] Implement location forsake effects.
+- [x] Implement location forsake effects.
 - [ ] Implement location cycle effects.
 - [ ] Implement location draw/play/cycle-rest effects.
 - [ ] Implement named battleground/path activation text.
-- [ ] Model mandatory vs optional location text.
+- [x] Model mandatory vs optional location text.
 
 ## Card Effect Engine
 

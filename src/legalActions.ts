@@ -27,6 +27,7 @@ export type LegalPendingDecision =
       readonly type: "forsake";
       readonly playerId: PlayerId;
       readonly required: number;
+      readonly maximum: number;
       readonly choices: readonly ForsakeChoice[];
     }
   | {
@@ -150,6 +151,10 @@ function legalPendingDecision(
         playerId,
         required: Math.min(
           decision.minimum,
+          availableForsakeCount(state, playerId),
+        ),
+        maximum: Math.min(
+          decision.maximum ?? decision.minimum,
           availableForsakeCount(state, playerId),
         ),
         choices,

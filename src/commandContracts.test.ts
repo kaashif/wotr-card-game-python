@@ -47,6 +47,7 @@ describe("command contracts", () => {
     const state = {
       ...base,
       activePlayer: "frodo" as const,
+      pendingDecisions: [],
       players: {
         ...base.players,
         frodo: {

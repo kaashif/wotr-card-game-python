@@ -90,6 +90,37 @@ const mandatoryLocationForsakes: Readonly<
     { playerId: "aragorn" },
   ],
 };
+const optionalLocationForsakes: Readonly<
+  Record<
+    string,
+    {
+      readonly playerId: PlayerId;
+      readonly drawAfterResolution?: number;
+      readonly addPathAttackAfterResolution?: number;
+    }
+  >
+> = {
+  "the-doors-of-durin": {
+    playerId: "saruman",
+    addPathAttackAfterResolution: 1,
+  },
+  osgiliath: {
+    playerId: "aragorn",
+    drawAfterResolution: 3,
+  },
+  "minas-tirith": {
+    playerId: "aragorn",
+    drawAfterResolution: 3,
+  },
+  "dol-amroth": {
+    playerId: "aragorn",
+    drawAfterResolution: 1,
+  },
+  pelargir: {
+    playerId: "aragorn",
+    drawAfterResolution: 1,
+  },
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -1087,14 +1118,24 @@ export function tryResolveForsakeDecision(
     });
   }
 
-  const requiredChoices = Math.min(
+  const minimumChoices = Math.min(
     decision.minimum,
     availableForsakeCount(state, playerId),
   );
-  if (choices.length !== requiredChoices) {
+  const maximumChoices = Math.min(
+    decision.maximum ?? decision.minimum,
+    availableForsakeCount(state, playerId),
+  );
+  if (
+    choices.length < minimumChoices ||
+    choices.length > maximumChoices
+  ) {
     return rejected(state, {
       code: "insufficient-decision-choices",
-      message: `This decision requires ${requiredChoices} forsake choice${requiredChoices === 1 ? "" : "s"}.`,
+      message:
+        minimumChoices === maximumChoices
+          ? `This decision requires ${minimumChoices} forsake choice${minimumChoices === 1 ? "" : "s"}.`
+          : `This decision allows between ${minimumChoices} and ${maximumChoices} forsake choices.`,
       ...(decision.source === undefined ? {} : { source: decision.source }),
     });
   }
@@ -1119,7 +1160,10 @@ export function tryResolveForsakeDecision(
     );
   }
 
-  if (decision.drawAfterResolution !== undefined) {
+  if (
+    choices.length > 0 &&
+    decision.drawAfterResolution !== undefined
+  ) {
     const handSize = nextState.players[playerId].hand.length;
     nextState = drawCards(
       nextState,
@@ -1130,6 +1174,15 @@ export function tryResolveForsakeDecision(
     if (drawn > 0) {
       events.push({ type: "cardsDrawn", playerId, count: drawn });
     }
+  }
+  if (
+    choices.length > 0 &&
+    decision.addPathAttackAfterResolution !== undefined
+  ) {
+    nextState = addActivePathAttackTokens(
+      nextState,
+      decision.addPathAttackAfterResolution,
+    );
   }
   nextState = resolveOldestPendingDecision(nextState);
   events.push({
@@ -1848,6 +1901,26 @@ function applySimpleLocationActivationEffects(
       ...(forsake.drawAfterResolution === undefined
         ? {}
         : { drawAfterResolution: forsake.drawAfterResolution }),
+      source: `location:${locationId}`,
+    });
+  }
+  const optionalForsake = optionalLocationForsakes[locationId];
+  if (optionalForsake !== undefined) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "forsake",
+      playerId: optionalForsake.playerId,
+      minimum: 0,
+      maximum: 1,
+      reason: `${locationId} optional activation effect`,
+      ...(optionalForsake.drawAfterResolution === undefined
+        ? {}
+        : { drawAfterResolution: optionalForsake.drawAfterResolution }),
+      ...(optionalForsake.addPathAttackAfterResolution === undefined
+        ? {}
+        : {
+            addPathAttackAfterResolution:
+              optionalForsake.addPathAttackAfterResolution,
+          }),
       source: `location:${locationId}`,
     });
   }
