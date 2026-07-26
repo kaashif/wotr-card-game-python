@@ -1912,9 +1912,23 @@ function scorePath(
 
 function executeDrawStep(state: GameState): GameState {
   return turnOrder.reduce(
-    (nextState, playerId) => drawCards(nextState, playerId, players[playerId].drawCount),
+    (nextState, playerId) =>
+      drawCards(nextState, playerId, drawCountForPlayer(nextState, playerId)),
     state,
   );
+}
+
+export function drawCountForPlayer(
+  state: GameState,
+  playerId: PlayerId,
+): number {
+  const reserveBonus = state.players[playerId].reserve.filter((instanceId) => {
+    const text = normalizeName(
+      getCardDefinition(getCard(state, instanceId).cardId).text,
+    );
+    return text.includes("while in reserve draw 1");
+  }).length;
+  return players[playerId].drawCount + reserveBonus;
 }
 
 function drawCards(state: GameState, playerId: PlayerId, count: number): GameState {
@@ -1956,11 +1970,18 @@ function forsakeFromTopOfDeck(state: GameState, playerId: PlayerId): GameState {
   if (forsaken === undefined) {
     return state;
   }
-  return updatePlayer(state, playerId, () => ({
+  const withoutTopCard = updatePlayer(state, playerId, () => ({
     ...replenished,
     draw: remainingDraw,
-    eliminated: [...replenished.eliminated, forsaken],
   }));
+  const definition = getCardDefinition(getCard(state, forsaken).cardId);
+  const normalizedText = normalizeName(definition.text);
+  const cyclesInstead =
+    normalizedText.includes("forsaken from top of the draw deck cycle instead") ||
+    normalizedText.includes("eliminated or forsaken cycle instead");
+  return cyclesInstead
+    ? cycleCards(withoutTopCard, [forsaken])
+    : eliminateCards(withoutTopCard, [forsaken]);
 }
 
 function eliminateCards(state: GameState, instanceIds: readonly string[]): GameState {
@@ -2142,18 +2163,45 @@ function isAllowedWielderName(itemDef: CardDefinition, wielderTitle: string): bo
 }
 
 function isInPlay(state: GameState, instanceId: string): boolean {
+  return isInPlayWithoutAttachmentCycle(state, instanceId, new Set());
+}
+
+function isInPlayWithoutAttachmentCycle(
+  state: GameState,
+  instanceId: string,
+  visited: ReadonlySet<string>,
+): boolean {
+  if (visited.has(instanceId)) {
+    return false;
+  }
+  const nextVisited = new Set(visited);
+  nextVisited.add(instanceId);
   return (
     Object.values(state.players).some((player) => player.reserve.includes(instanceId)) ||
     (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
     state.additionalActiveBattlegrounds.some((battleground) =>
       battleground.cards.includes(instanceId)
     ) ||
-    (state.activePath?.cards.includes(instanceId) ?? false)
+    (state.activePath?.cards.includes(instanceId) ?? false) ||
+    Object.entries(state.attachments).some(
+      ([wielderId, itemIds]) =>
+        itemIds.includes(instanceId) &&
+        isInPlayWithoutAttachmentCycle(state, wielderId, nextVisited),
+    )
   );
 }
 
-function carryoverLimit(_state: GameState, _playerId: PlayerId): number {
-  return baseCarryoverLimit;
+function carryoverLimit(state: GameState, playerId: PlayerId): number {
+  const modifiers = Object.keys(state.cards).filter((instanceId) => {
+    if (findOwner(state, instanceId) !== playerId || !isInPlay(state, instanceId)) {
+      return false;
+    }
+    const text = normalizeName(
+      getCardDefinition(getCard(state, instanceId).cardId).text,
+    );
+    return text.includes("increase your carryover limit by 1");
+  }).length;
+  return baseCarryoverLimit + modifiers;
 }
 
 function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
