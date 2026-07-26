@@ -11,6 +11,7 @@ import type {
   CardDefinition,
   CardInstance,
   CommandResult,
+  ForsakeChoice,
   ForsakeSource,
   Faction,
   GameEvent,
@@ -822,6 +823,72 @@ export function resolveOldestPendingDecision(state: GameState): GameState {
   return { ...state, pendingDecisions: remaining };
 }
 
+export function tryResolveForsakeDecision(
+  state: GameState,
+  playerId: PlayerId,
+  choices: readonly ForsakeChoice[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "forsake") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not forsake.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+
+  const requiredChoices = Math.min(
+    decision.minimum,
+    availableForsakeCount(state, playerId),
+  );
+  if (choices.length !== requiredChoices) {
+    return rejected(state, {
+      code: "insufficient-decision-choices",
+      message: `This decision requires ${requiredChoices} forsake choice${requiredChoices === 1 ? "" : "s"}.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  let nextState = state;
+  const events: GameEvent[] = [];
+  for (const choice of choices) {
+    const cardId = choice.source === "draw" ? undefined : choice.cardId;
+    const forsaken = forsakeCard(nextState, playerId, choice.source, cardId);
+    if (forsaken === null || forsaken === nextState) {
+      return rejected(state, {
+        code: "invalid-decision-choice",
+        message: "A selected card is not available from that forsake source.",
+        ...(decision.source === undefined ? {} : { source: decision.source }),
+      });
+    }
+    nextState = forsaken;
+    events.push(
+      cardId === undefined
+        ? { type: "cardForsaken", playerId, source: choice.source }
+        : { type: "cardForsaken", playerId, source: choice.source, cardId },
+    );
+  }
+
+  nextState = resolveOldestPendingDecision(nextState);
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+    playerId,
+  });
+  return accepted(nextState, events);
+}
+
 export function nextTurn(state: GameState): GameState {
   return {
     ...state,
@@ -1471,6 +1538,12 @@ function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
 }
 
 function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation | null {
+  if (state.pendingDecisions.length > 0) {
+    return {
+      code: "pending-decision-required",
+      message: "Resolve the oldest pending decision before taking another action.",
+    };
+  }
   if (state.phase !== "action") {
     return {
       code: "wrong-phase",
@@ -1484,6 +1557,16 @@ function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation
     };
   }
   return null;
+}
+
+function availableForsakeCount(state: GameState, playerId: PlayerId): number {
+  const player = state.players[playerId];
+  return (
+    player.hand.length +
+    player.reserve.length +
+    player.draw.length +
+    player.cycle.length
+  );
 }
 
 function accepted(state: GameState, events: readonly GameEvent[]): CommandResult {

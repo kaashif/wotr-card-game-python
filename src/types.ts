@@ -31,6 +31,10 @@ export type PlayDestination = "reserve" | "battleground" | "path";
 
 export type ForsakeSource = "hand" | "reserve" | "draw";
 
+export type ForsakeChoice =
+  | { readonly source: "draw" }
+  | { readonly source: "hand" | "reserve"; readonly cardId: string };
+
 export type PathActivationChoice = "same-number" | "next-higher";
 
 export interface CardDefinition {
@@ -196,7 +200,8 @@ export type GameEvent =
   | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
-  | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision };
+  | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision }
+  | { readonly type: "pendingDecisionResolved"; readonly decisionType: PendingDecision["type"]; readonly playerId?: PlayerId };
 
 export interface GameState {
   readonly schemaVersion: 1;
@@ -242,7 +247,13 @@ export type RuleViolationCode =
   | "unknown-path"
   | "path-already-activated"
   | "path-not-eligible"
-  | "no-eligible-path";
+  | "no-eligible-path"
+  | "pending-decision-required"
+  | "no-pending-decision"
+  | "wrong-decision-type"
+  | "wrong-decision-player"
+  | "invalid-decision-choice"
+  | "insufficient-decision-choices";
 
 export interface RuleViolation {
   readonly code: RuleViolationCode;

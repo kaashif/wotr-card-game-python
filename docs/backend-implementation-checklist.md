@@ -15,7 +15,7 @@ state after PR #22 and PR #23.
 
 ## Pending Decisions
 
-- [ ] Implement forsake choices as pending decisions.
+- [x] Implement forsake choices as pending decisions.
 - [ ] Implement defender casualty/loss assignment as pending decisions.
 - [ ] Implement draw N / play up to M / cycle rest choices.
 - [ ] Implement search/take/reveal choices.
