@@ -16,6 +16,8 @@ const wielderOwner: PlayerId = "frodo";
 const cloak = "aragorn-elven-cloak-58-1";
 const frodo = "frodo-frodo-baggins-69-1";
 const cost = "aragorn-aragorn-38-1";
+const bow = "aragorn-bow-of-galadhrim-57-1";
+const legolas = "aragorn-legolas-56-1";
 
 describe("attachment ownership and movement", () => {
   it("allows an item to be attached to a teammate's eligible character", () => {
@@ -84,6 +86,32 @@ describe("attachment ownership and movement", () => {
     expect(next.players[itemOwner].cycle).toContain(cloak);
     expect(next.attachments[frodo]).toBeUndefined();
     expect(assertGameInvariants(next)).toEqual([]);
+  });
+
+  it("prevents a Bow of Galadhrim wielder from taking another weapon", () => {
+    const syntheticBow = "aragorn-bow-of-galadhrim-57-test-copy";
+    const cloakForElf = "aragorn-elven-cloak-58-1";
+    const base = createGame("bow-weapon-restriction");
+    const arranged = setPlayerZones(base, itemOwner, {
+      hand: [syntheticBow, cloakForElf],
+      reserve: [legolas],
+    });
+    const state: GameState = {
+      ...arranged,
+      cards: {
+        ...arranged.cards,
+        [syntheticBow]: {
+          instanceId: syntheticBow,
+          cardId: arranged.cards[bow]?.cardId ?? "bow-of-galadhrim-57",
+        },
+      },
+      attachments: {
+        [legolas]: [bow],
+      },
+    };
+
+    expect(canAttachItemTo(state, itemOwner, syntheticBow, legolas)).toBe(false);
+    expect(canAttachItemTo(state, itemOwner, cloakForElf, legolas)).toBe(true);
   });
 });
 

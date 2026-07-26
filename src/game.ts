@@ -32,6 +32,19 @@ const startingHandSize = 7;
 const setupCycleCount = 2;
 const handLimit = 6;
 const baseCarryoverLimit = 2;
+const bowOfGaladhrimId = "bow-of-galadhrim-57";
+const weaponCardIds = new Set([
+  "anduril-46",
+  "blade-of-westernesse-47",
+  bowOfGaladhrimId,
+  "dwarven-axe-68",
+  "sting-76",
+  "gandalfs-staff-94",
+  "glamdring-95",
+  "saruman-s-staff-110",
+  "whip-of-many-thongs-124",
+  "morgul-blade-162",
+]);
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -2233,7 +2246,31 @@ function isValidWielder(
     return false;
   }
   const wielderDef = getCardDefinition(wielder.cardId);
-  return wielderDef.type === "character" && isAllowedWielder(itemDef, wielderDef);
+  return (
+    wielderDef.type === "character" &&
+    isAllowedWielder(itemDef, wielderDef) &&
+    !violatesWeaponRestriction(state, itemDef, wielderId)
+  );
+}
+
+function violatesWeaponRestriction(
+  state: GameState,
+  itemDef: CardDefinition,
+  wielderId: string,
+): boolean {
+  const attachedDefinitions = (state.attachments[wielderId] ?? []).map(
+    (itemId) => getCardDefinition(getCard(state, itemId).cardId),
+  );
+  const bowAlreadyAttached = attachedDefinitions.some(
+    (definition) => definition.id === bowOfGaladhrimId,
+  );
+  const weaponAlreadyAttached = attachedDefinitions.some((definition) =>
+    weaponCardIds.has(definition.id)
+  );
+  return (
+    (bowAlreadyAttached && weaponCardIds.has(itemDef.id)) ||
+    (itemDef.id === bowOfGaladhrimId && weaponAlreadyAttached)
+  );
 }
 
 function isAllowedWielder(

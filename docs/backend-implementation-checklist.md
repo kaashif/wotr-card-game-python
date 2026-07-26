@@ -102,7 +102,7 @@ state after PR #22 and PR #23.
 - [x] Move items with their wielders.
 - [x] Cycle items to the item owner's cycle pile.
 - [x] Apply item replacement effects with wielder replacement effects.
-- [ ] Enforce weapon restrictions such as Bow of Galadhrim.
+- [x] Enforce weapon restrictions such as Bow of Galadhrim.
 - [ ] Keep items on active characters from unactivating the character.
 - [ ] Implement item forsake/control semantics for reserve wielders.
 
