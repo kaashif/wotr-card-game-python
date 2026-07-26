@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { pathDefinitions } from "./data";
 import {
   createGame,
+  eligiblePathsByNumber,
   enqueuePendingDecision,
   getCard,
   getCardDefinition,
+  resolveCombat,
   tryPass,
+  tryActivatePathByChoice,
   tryResolveCombatLossDecision,
   tryResolveDrawPlayCycleRestDecision,
   tryResolveForsakeDecision,
@@ -420,6 +424,130 @@ describe("pending decision commands", () => {
       state,
       violation: { code: "invalid-decision-choice" },
     });
+  });
+
+  it("pauses combat for ambiguous losses and resumes after the choice", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("integrated-combat-loss-choice");
+    const defenders = ownedPathDefenders(base, playerId, 2);
+    const path = pathDefinitions.find(
+      (definition) => definition.id === base.activePath?.id,
+    );
+    expect(defenders).toHaveLength(2);
+    expect(path).toBeDefined();
+    if (defenders.length !== 2 || path === undefined) {
+      return;
+    }
+    const [eliminated] = defenders;
+    if (eliminated === undefined) {
+      return;
+    }
+    const state = placeOnActivePath(
+      {
+        ...base,
+        phase: "combat",
+        activeBattleground: null,
+        activePath:
+          base.activePath === null
+            ? null
+            : {
+                ...base.activePath,
+                attackTokens: path.defenseIcons + 1,
+              },
+      },
+      playerId,
+      defenders,
+    );
+
+    const paused = resolveCombat(state);
+
+    expect(paused.round).toBe(state.round);
+    expect(paused.pendingDecisions[0]).toMatchObject({
+      type: "combatLosses",
+      locationType: "path",
+      candidates: defenders,
+      resumeCombat: true,
+    });
+    expect(paused.scoringAreas.paths.free).toHaveLength(1);
+
+    const resolved = tryResolveCombatLossDecision(paused, [eliminated]);
+
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.state.round).toBe(state.round + 1);
+      expect(resolved.state.pendingDecisions).toEqual([]);
+      expect(resolved.state.scoringAreas.paths.free).toHaveLength(1);
+      expect(assertGameInvariants(resolved.state)).toEqual([]);
+    }
+  });
+
+  it("finishes ambiguous losses before activating a replacement path", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("replacement-path-loss-choice");
+    const defenders = ownedPathDefenders(base, playerId, 2);
+    const path = pathDefinitions.find(
+      (definition) => definition.id === base.activePath?.id,
+    );
+    const replacement = eligiblePathsByNumber(base, 1)[0];
+    expect(defenders).toHaveLength(2);
+    expect(path).toBeDefined();
+    expect(replacement).toBeDefined();
+    if (
+      defenders.length !== 2 ||
+      path === undefined ||
+      replacement === undefined ||
+      base.activePath === null
+    ) {
+      return;
+    }
+    const [eliminated] = defenders;
+    if (eliminated === undefined) {
+      return;
+    }
+    const arranged = placeOnActivePath(
+      {
+        ...base,
+        activePath: {
+          ...base.activePath,
+          attackTokens: path.defenseIcons + 1,
+        },
+      },
+      playerId,
+      defenders,
+    );
+
+    const activation = tryActivatePathByChoice(
+      arranged,
+      replacement,
+      "same-number",
+    );
+
+    expect(activation.ok).toBe(true);
+    if (!activation.ok) {
+      return;
+    }
+    expect(activation.state.activePath?.id).toBe(base.activePath.id);
+    expect(activation.state.pendingDecisions[0]).toMatchObject({
+      type: "combatLosses",
+      activatePathAfterResolution: replacement,
+    });
+
+    const resolved = tryResolveCombatLossDecision(
+      activation.state,
+      [eliminated],
+    );
+
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.state.activePath?.id).toBe(replacement);
+      expect(resolved.state.pendingDecisions).toEqual([]);
+      expect(resolved.events).toContainEqual({
+        type: "pathActivated",
+        pathId: replacement,
+        replacedPathId: base.activePath.id,
+      });
+      expect(assertGameInvariants(resolved.state)).toEqual([]);
+    }
   });
 });
 

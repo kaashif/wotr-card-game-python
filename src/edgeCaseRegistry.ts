@@ -93,7 +93,7 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "combat-loss-pending-decision",
     category: "combat",
     title: "Defender loss assignment must be a pending decision when ambiguous.",
-    status: "scaffolded",
+    status: "implemented",
     sources: ["rules:270-285", "rules:310-320"],
   },
   {

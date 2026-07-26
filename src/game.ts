@@ -712,7 +712,15 @@ export function activatePathById(state: GameState, pathId: string): GameState | 
   ) {
     return null;
   }
-  let nextState = state.activePath === null ? state : scorePath(state, state.activePath);
+  let nextState =
+    state.activePath === null
+      ? state
+      : scorePath(state, state.activePath, {
+          activatePathAfterResolution: pathId,
+        });
+  if (nextState.pendingDecisions.length > state.pendingDecisions.length) {
+    return nextState;
+  }
   nextState = removeScoredActivePathCards(nextState);
   return addLog(
     {
@@ -1124,7 +1132,32 @@ export function tryResolveCombatLossDecision(
     type: "pendingDecisionResolved",
     decisionType: decision.type,
   });
-  return accepted(nextState, events);
+  nextState = appendEvents(nextState, events);
+
+  if (decision.activatePathAfterResolution !== undefined) {
+    const pathId = decision.activatePathAfterResolution;
+    const replacedPathId = decision.locationId;
+    const activated = activatePathById(
+      { ...nextState, activePath: null },
+      pathId,
+    );
+    if (activated !== null) {
+      const activationEvent: GameEvent = {
+        type: "pathActivated",
+        pathId,
+        replacedPathId,
+      };
+      nextState = appendEvents(activated, [activationEvent]);
+      events.push(activationEvent);
+    }
+  } else if (decision.resumeCombat === true) {
+    nextState = resolveCombat(
+      decision.locationType === "path"
+        ? { ...nextState, activePath: null }
+        : { ...nextState, activeBattleground: null },
+    );
+  }
+  return { ok: true, state: nextState, events };
 }
 
 export function nextTurn(state: GameState): GameState {
@@ -1139,11 +1172,18 @@ export function resolveCombat(state: GameState): GameState {
   const battleground = state.activeBattleground;
   if (battleground !== null) {
     nextState = scoreBattleground(nextState, battleground);
+    if (nextState.pendingDecisions.length > state.pendingDecisions.length) {
+      return nextState;
+    }
   }
 
   const path = nextState.activePath;
   if (path !== null) {
-    nextState = scorePath(nextState, path);
+    const pendingCount = nextState.pendingDecisions.length;
+    nextState = scorePath(nextState, path, { resumeCombat: true });
+    if (nextState.pendingDecisions.length > pendingCount) {
+      return nextState;
+    }
   }
 
   if (nextState.currentPathNumber >= 9) {
@@ -1448,29 +1488,52 @@ function scoreBattleground(
   const winner: Side = attack > defense ? oppositeSide(definition.side) : definition.side;
   const locationDefense = definition.defenseIcons + battleground.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
-  const { eliminated: defenderLosses, cycled: defenderSurvivors } =
-    assignDefenderLosses(state, defendingCards, remainingAttack, "battleground");
+  const decision = {
+    type: "combatLosses",
+    side: definition.side,
+    locationType: "battleground",
+    locationId: definition.id,
+    attackToCancel: remainingAttack,
+    candidates: defendingCards,
+    resumeCombat: true,
+    source: "combat:battleground",
+  } satisfies Extract<PendingDecision, { readonly type: "combatLosses" }>;
+  const validSelections = validCombatLossSelections(state, decision);
+  const scoredState: GameState = {
+    ...state,
+    score: {
+      ...state.score,
+      [winner]: state.score[winner] + definition.victoryPoints,
+    },
+    scoringAreas: {
+      ...state.scoringAreas,
+      battlegrounds: {
+        ...state.scoringAreas.battlegrounds,
+        [winner]: uniqueAppend(
+          state.scoringAreas.battlegrounds[winner],
+          definition.id,
+        ),
+      },
+    },
+  };
+  if (validSelections.length > 1) {
+    return addLog(
+      enqueuePendingDecision(
+        eliminateCards(scoredState, attackingCards),
+        decision,
+      ),
+      `${definition.title}: ${winnerLabel(winner)} scored ${definition.victoryPoints} VP; awaiting defender losses.`,
+    );
+  }
+  const defenderLosses = validSelections[0] ?? [];
+  const defenderSurvivors = defendingCards.filter(
+    (instanceId) => !defenderLosses.includes(instanceId),
+  );
 
   return addLog(
     cycleCards(
       eliminateCards(
-        {
-          ...state,
-          score: {
-            ...state.score,
-            [winner]: state.score[winner] + definition.victoryPoints,
-          },
-          scoringAreas: {
-            ...state.scoringAreas,
-            battlegrounds: {
-              ...state.scoringAreas.battlegrounds,
-              [winner]: uniqueAppend(
-                state.scoringAreas.battlegrounds[winner],
-                definition.id,
-              ),
-            },
-          },
-        },
+        scoredState,
         [...attackingCards, ...defenderLosses],
       ),
       defenderSurvivors,
@@ -1479,7 +1542,14 @@ function scoreBattleground(
   );
 }
 
-function scorePath(state: GameState, path: ActivePath): GameState {
+function scorePath(
+  state: GameState,
+  path: ActivePath,
+  continuation: {
+    readonly resumeCombat?: boolean;
+    readonly activatePathAfterResolution?: string;
+  } = {},
+): GameState {
   const definition = pathById.get(path.id);
   if (definition === undefined) {
     return state;
@@ -1496,35 +1566,58 @@ function scorePath(state: GameState, path: ActivePath): GameState {
     .reduce((sum, card) => sum + card.pathIcons, 0);
   const uncanceledAttack = Math.max(0, remainingAttack - freeDefense);
   const winner: Side = uncanceledAttack === 0 ? "free" : "shadow";
-  const { eliminated: defenderLosses, cycled: defenderSurvivors } =
-    assignDefenderLosses(state, freeCards, remainingAttack, "path");
   const points = winner === "free" ? definition.victoryPoints : uncanceledAttack;
   const corruptionAdded = winner === "shadow" ? uncanceledAttack : 0;
+  const decision = {
+    type: "combatLosses",
+    side: "free",
+    locationType: "path",
+    locationId: definition.id,
+    attackToCancel: remainingAttack,
+    candidates: freeCards,
+    ...continuation,
+    source: "combat:path",
+  } satisfies Extract<PendingDecision, { readonly type: "combatLosses" }>;
+  const validSelections = validCombatLossSelections(state, decision);
+  const scoredState: GameState = {
+    ...state,
+    corruption: {
+      tokens: state.corruption.tokens + corruptionAdded,
+    },
+    score: {
+      ...state.score,
+      [winner]: state.score[winner] + points,
+    },
+    scoringAreas: {
+      ...state.scoringAreas,
+      paths: {
+        ...state.scoringAreas.paths,
+        [winner]: appendScoredPath(state.scoringAreas.paths[winner], {
+          id: definition.id,
+          points,
+          facedown: winner === "shadow",
+        }),
+      },
+    },
+  };
+  if (validSelections.length > 1) {
+    return addLog(
+      enqueuePendingDecision(
+        eliminateCards(scoredState, shadowCards),
+        decision,
+      ),
+      `${definition.title}: ${winnerLabel(winner)} scored ${points} VP; awaiting defender losses.`,
+    );
+  }
+  const defenderLosses = validSelections[0] ?? [];
+  const defenderSurvivors = freeCards.filter(
+    (instanceId) => !defenderLosses.includes(instanceId),
+  );
 
   return addLog(
     cycleCards(
       eliminateCards(
-        {
-          ...state,
-          corruption: {
-            tokens: state.corruption.tokens + corruptionAdded,
-          },
-          score: {
-            ...state.score,
-            [winner]: state.score[winner] + points,
-          },
-          scoringAreas: {
-            ...state.scoringAreas,
-            paths: {
-              ...state.scoringAreas.paths,
-              [winner]: appendScoredPath(state.scoringAreas.paths[winner], {
-                id: definition.id,
-                points,
-                facedown: winner === "shadow",
-              }),
-            },
-          },
-        },
+        scoredState,
         [...shadowCards, ...defenderLosses],
       ),
       defenderSurvivors,
@@ -2010,38 +2103,6 @@ function appendEvents(state: GameState, events: readonly GameEvent[]): GameState
 
 function normalizeName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function assignDefenderLosses(
-  state: GameState,
-  defenderCards: readonly string[],
-  attackToCancel: number,
-  combatType: "battleground" | "path",
-): { eliminated: readonly string[]; cycled: readonly string[] } {
-  if (attackToCancel <= 0) {
-    return { eliminated: [], cycled: defenderCards };
-  }
-
-  let canceled = 0;
-  const eliminated: string[] = [];
-  const sorted = [...defenderCards].sort((left, right) => {
-    const leftDefense = defenseIconsFor(state, left, combatType);
-    const rightDefense = defenseIconsFor(state, right, combatType);
-    return leftDefense - rightDefense;
-  });
-
-  for (const instanceId of sorted) {
-    if (canceled >= attackToCancel) {
-      break;
-    }
-    eliminated.push(instanceId);
-    canceled += defenseIconsFor(state, instanceId, combatType);
-  }
-
-  return {
-    eliminated,
-    cycled: defenderCards.filter((instanceId) => !eliminated.includes(instanceId)),
-  };
 }
 
 function defenseIconsFor(

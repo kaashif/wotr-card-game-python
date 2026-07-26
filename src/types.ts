@@ -171,6 +171,8 @@ export type PendingDecision =
       readonly locationId: string;
       readonly attackToCancel: number;
       readonly candidates: readonly string[];
+      readonly resumeCombat?: boolean;
+      readonly activatePathAfterResolution?: string;
       readonly source?: string;
     }
   | {

@@ -16,7 +16,7 @@ state after PR #22 and PR #23.
 ## Pending Decisions
 
 - [x] Implement forsake choices as pending decisions.
-- [ ] Implement defender casualty/loss assignment as pending decisions.
+- [x] Implement defender casualty/loss assignment as pending decisions.
 - [x] Implement draw N / play up to M / cycle rest choices.
 - [x] Implement search/take/reveal choices.
 - [ ] Implement optional `may` effects.
@@ -112,8 +112,8 @@ state after PR #22 and PR #23.
 - [ ] Determine attacker and defender sides by combat type/location.
 - [ ] Apply location defense icons before card defense.
 - [ ] Apply defense tokens before card defense.
-- [ ] Require defenders to cancel as many attack icons as possible.
-- [ ] Implement defender loss assignment choices.
+- [x] Require defenders to cancel as many attack icons as possible.
+- [x] Implement defender loss assignment choices.
 - [ ] Implement leadership icon support assignment.
 - [ ] Enforce one army supporting only one leader.
 - [ ] Handle ambiguous support choices.
