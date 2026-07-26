@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { hashGameState } from "./archive";
 import { edgeCaseRegistry } from "./edgeCaseRegistry";
 import {
   activatePathById,
@@ -247,9 +248,24 @@ function applyGeneratedCommand(state: GameState, rng: () => number): GameState {
 
   const illegalPlayer = nextPlayer(playerId);
   const illegalCard = state.players[illegalPlayer].hand[0] ?? "missing-card";
-  const result = tryPlayCard(state, illegalPlayer, illegalCard, "reserve");
+  const illegalResults = [
+    tryPlayCard(state, illegalPlayer, illegalCard, "reserve"),
+    tryMoveFromReserve(state, playerId, "missing-card", "path"),
+    tryWinnow(state, playerId, "missing-card", "missing-card"),
+    tryResolveSearchDecision(state, playerId, []),
+  ];
+  const result = choose(illegalResults, rng) ?? illegalResults[0];
+  expect(result).toBeDefined();
+  if (result === undefined) {
+    return state;
+  }
   expect(result.ok).toBe(false);
-  expect(JSON.stringify(result.state)).toBe(JSON.stringify(state));
+  if (!result.ok) {
+    expect(result.violation.code.length).toBeGreaterThan(0);
+    expect(result.violation.message.length).toBeGreaterThan(0);
+  }
+  expect(result.state).toBe(state);
+  expect(hashGameState(result.state)).toBe(hashGameState(state));
   return state;
 }
 
@@ -261,7 +277,10 @@ function cardSubsets(cards: readonly string[]): readonly (readonly string[])[] {
 
 function acceptOrKeep(state: GameState, result: CommandResult): GameState {
   if (!result.ok) {
-    expect(JSON.stringify(result.state)).toBe(JSON.stringify(state));
+    expect(result.violation.code.length).toBeGreaterThan(0);
+    expect(result.violation.message.length).toBeGreaterThan(0);
+    expect(result.state).toBe(state);
+    expect(hashGameState(result.state)).toBe(hashGameState(state));
     return state;
   }
   return result.state;
