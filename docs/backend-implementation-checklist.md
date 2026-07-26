@@ -171,14 +171,14 @@ state after PR #22 and PR #23.
 ## Fuzz And Property Testing
 
 - [ ] Add command-sequence generators.
-- [ ] Generate mostly legal commands.
+- [x] Generate mostly legal commands.
 - [ ] Generate intentionally illegal commands.
 - [ ] Assert illegal commands return typed violations.
 - [ ] Assert illegal commands preserve state hash.
-- [ ] Assert every accepted command satisfies invariants.
-- [ ] Generate pending-decision-aware command streams.
+- [x] Assert every accepted command satisfies invariants.
+- [x] Generate pending-decision-aware command streams.
 - [ ] Exhaustively generate small combat states.
-- [ ] Add CI smoke fuzz.
+- [x] Add CI smoke fuzz.
 - [ ] Add nightly deep fuzz.
 - [ ] Archive minimized failing sequences.
 

@@ -18,6 +18,10 @@ import {
   tryMoveFromReserve,
   tryPass,
   tryPlayCard,
+  tryResolveCombatLossDecision,
+  tryResolveDrawPlayCycleRestDecision,
+  tryResolveForsakeDecision,
+  tryResolveSearchDecision,
   tryWinnow,
   usePlayerRingToken,
 } from "./game";
@@ -132,6 +136,55 @@ describe("engine invariants", () => {
 });
 
 function applyGeneratedCommand(state: GameState, rng: () => number): GameState {
+  const pending = state.pendingDecisions[0];
+  if (pending !== undefined) {
+    switch (pending.type) {
+      case "forsake": {
+        const player = state.players[pending.playerId];
+        const choices = [
+          ...player.hand.map((cardId) => ({
+            source: "hand" as const,
+            cardId,
+          })),
+          ...player.reserve.map((cardId) => ({
+            source: "reserve" as const,
+            cardId,
+          })),
+          ...[...player.draw, ...player.cycle].map(() => ({
+            source: "draw" as const,
+          })),
+        ].slice(0, pending.minimum);
+        return acceptOrKeep(
+          state,
+          tryResolveForsakeDecision(state, pending.playerId, choices),
+        );
+      }
+      case "search":
+        return acceptOrKeep(
+          state,
+          tryResolveSearchDecision(
+            state,
+            pending.playerId,
+            pending.choices.slice(0, pending.minimum),
+          ),
+        );
+      case "drawPlayCycleRest":
+        return acceptOrKeep(
+          state,
+          tryResolveDrawPlayCycleRestDecision(state, pending.playerId, []),
+        );
+      case "combatLosses": {
+        for (const selection of cardSubsets(pending.candidates)) {
+          const result = tryResolveCombatLossDecision(state, selection);
+          if (result.ok) {
+            return result.state;
+          }
+        }
+        return state;
+      }
+    }
+  }
+
   const playerId = state.activePlayer;
   const player = state.players[playerId];
   const roll = rng();
@@ -198,6 +251,12 @@ function applyGeneratedCommand(state: GameState, rng: () => number): GameState {
   expect(result.ok).toBe(false);
   expect(JSON.stringify(result.state)).toBe(JSON.stringify(state));
   return state;
+}
+
+function cardSubsets(cards: readonly string[]): readonly (readonly string[])[] {
+  return Array.from({ length: 2 ** cards.length }, (_, mask) =>
+    cards.filter((_cardId, index) => (mask & (1 << index)) !== 0),
+  );
 }
 
 function acceptOrKeep(state: GameState, result: CommandResult): GameState {
