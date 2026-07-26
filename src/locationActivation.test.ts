@@ -9,6 +9,7 @@ import {
   tryActivateBattlegroundFromDeck,
   tryActivatePathByChoice,
   tryReactivateBattleground,
+  tryResolveForsakeDecision,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 
@@ -435,6 +436,92 @@ describe("round location activation", () => {
     });
     if (next !== null) {
       expect(assertGameInvariants(next)).toEqual([]);
+    }
+  });
+
+  it("queues mandatory forsakes for both Free Peoples players", () => {
+    const base = createGame("old-forest-forsakes");
+    const state = {
+      ...base,
+      currentPathNumber: 2,
+      activePath: {
+        id: "inn-of-the-prancing-pony",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      pathDeck: ["the-old-forest"],
+      activatedPaths: ["inn-of-the-prancing-pony"],
+    };
+
+    const next = activatePathById(state, "the-old-forest");
+
+    expect(next?.pendingDecisions).toMatchObject([
+      {
+        type: "forsake",
+        playerId: "frodo",
+        minimum: 1,
+        source: "location:the-old-forest",
+      },
+      {
+        type: "forsake",
+        playerId: "aragorn",
+        minimum: 1,
+        source: "location:the-old-forest",
+      },
+    ]);
+    if (next !== null) {
+      expect(assertGameInvariants(next)).toEqual([]);
+    }
+  });
+
+  it("draws three after each Fords of Bruinen forsake resolves", () => {
+    const base = createGame("fords-forsake-draw");
+    const state = {
+      ...base,
+      currentPathNumber: 3,
+      activePath: {
+        id: "imladris-rivendel",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      pathDeck: ["fords-of-bruinen"],
+      activatedPaths: ["imladris-rivendel"],
+    };
+    const activated = activatePathById(state, "fords-of-bruinen");
+    expect(activated).not.toBeNull();
+    if (activated === null) {
+      return;
+    }
+    const card = activated.players.frodo.hand.find(
+      (cardId) =>
+        !cardId.includes("frodo-baggins-69") &&
+        !cardId.includes("bilbo-baggins-73"),
+    );
+    expect(card).toBeDefined();
+    if (card === undefined) {
+      return;
+    }
+    const before = activated.players.frodo.hand.length;
+
+    const result = tryResolveForsakeDecision(activated, "frodo", [
+      { source: "hand", cardId: card },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.frodo.hand).toHaveLength(before + 2);
+      expect(result.state.pendingDecisions[0]).toMatchObject({
+        type: "forsake",
+        playerId: "aragorn",
+      });
+      expect(result.events).toContainEqual({
+        type: "cardsDrawn",
+        playerId: "frodo",
+        count: 3,
+      });
+      expect(assertGameInvariants(result.state)).toEqual([]);
     }
   });
 });

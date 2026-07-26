@@ -169,6 +169,7 @@ export type PendingDecision =
       readonly playerId: PlayerId;
       readonly reason: string;
       readonly minimum: number;
+      readonly drawAfterResolution?: number;
       readonly source?: string;
     }
   | {

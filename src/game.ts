@@ -64,6 +64,32 @@ const simpleLocationDraws: Readonly<
   harad: [["witchKing", 1], ["saruman", 1]],
   umbar: [["witchKing", 1], ["saruman", 1]],
 };
+const mandatoryLocationForsakes: Readonly<
+  Record<
+    string,
+    readonly {
+      readonly playerId: PlayerId;
+      readonly drawAfterResolution?: number;
+    }[]
+  >
+> = {
+  "the-old-forest": [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+  "fords-of-bruinen": [
+    { playerId: "frodo", drawAfterResolution: 3 },
+    { playerId: "aragorn", drawAfterResolution: 3 },
+  ],
+  caradhras: [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+  "emyn-muil": [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -1093,6 +1119,18 @@ export function tryResolveForsakeDecision(
     );
   }
 
+  if (decision.drawAfterResolution !== undefined) {
+    const handSize = nextState.players[playerId].hand.length;
+    nextState = drawCards(
+      nextState,
+      playerId,
+      decision.drawAfterResolution,
+    );
+    const drawn = nextState.players[playerId].hand.length - handSize;
+    if (drawn > 0) {
+      events.push({ type: "cardsDrawn", playerId, count: drawn });
+    }
+  }
   nextState = resolveOldestPendingDecision(nextState);
   events.push({
     type: "pendingDecisionResolved",
@@ -1800,6 +1838,18 @@ function applySimpleLocationActivationEffects(
   }
   if (locationId === "morgai" && nextState.activePath?.id === locationId) {
     nextState = addActivePathAttackTokens(nextState, 1);
+  }
+  for (const forsake of mandatoryLocationForsakes[locationId] ?? []) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "forsake",
+      playerId: forsake.playerId,
+      minimum: 1,
+      reason: `${locationId} activation`,
+      ...(forsake.drawAfterResolution === undefined
+        ? {}
+        : { drawAfterResolution: forsake.drawAfterResolution }),
+      source: `location:${locationId}`,
+    });
   }
   return nextState;
 }
