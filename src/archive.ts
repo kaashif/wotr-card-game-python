@@ -206,6 +206,66 @@ export function replayArchive(archive: GameArchive): ReplayVerification {
   return { archive, finalState: state, errors };
 }
 
+export function replayArchiveFromCheckpoint(
+  archive: GameArchive,
+  checkpointEventCount: number,
+  checkpointState: GameState,
+): ReplayVerification {
+  const errors: string[] = [];
+  if (
+    !Number.isInteger(checkpointEventCount) ||
+    checkpointEventCount < 0 ||
+    checkpointEventCount > archive.events.length
+  ) {
+    return {
+      archive,
+      finalState: checkpointState,
+      errors: ["Checkpoint event count is outside the archive."],
+    };
+  }
+  if (!metadataMatches(archive.metadata, currentArchiveMetadata())) {
+    errors.push("Archive metadata does not match the current engine/reference data.");
+  }
+  const checkpointHash =
+    checkpointEventCount === 0
+      ? archive.initialStateHash
+      : archive.events[checkpointEventCount - 1]?.afterStateHash;
+  const actualCheckpointHash = hashGameState(checkpointState);
+  if (checkpointHash !== actualCheckpointHash) {
+    errors.push(
+      `Checkpoint state hash mismatch: expected ${checkpointHash}, got ${actualCheckpointHash}.`,
+    );
+  }
+
+  let state = checkpointState;
+  for (const event of archive.events.slice(checkpointEventCount)) {
+    const beforeStateHash = hashGameState(state);
+    if (event.beforeStateHash !== beforeStateHash) {
+      errors.push(
+        `Event ${event.index} before-state hash mismatch: expected ${event.beforeStateHash}, got ${beforeStateHash}.`,
+      );
+    }
+    state = applyGameCommand(state, event.command);
+    const afterStateHash = hashGameState(state);
+    if (event.afterStateHash !== afterStateHash) {
+      errors.push(
+        `Event ${event.index} after-state hash mismatch: expected ${event.afterStateHash}, got ${afterStateHash}.`,
+      );
+    }
+    if (!arraysEqual(event.validationErrors, validateState(state))) {
+      errors.push(`Event ${event.index} validation errors changed.`);
+    }
+  }
+
+  const finalStateHash = hashGameState(state);
+  if (archive.finalStateHash !== finalStateHash) {
+    errors.push(
+      `Final state hash mismatch: expected ${archive.finalStateHash}, got ${finalStateHash}.`,
+    );
+  }
+  return { archive, finalState: state, errors };
+}
+
 export function createPublicArchive(
   archive: GameArchive,
   viewerId: PlayerId,

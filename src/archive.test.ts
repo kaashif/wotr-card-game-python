@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendCommand,
+  applyGameCommand,
   createPublicArchive,
   createGameArchive,
   currentArchiveMetadata,
   hashGameState,
   replayArchive,
+  replayArchiveFromCheckpoint,
 } from "./archive";
 import { createGame } from "./game";
 import type { GameArchive, GameCommand } from "./archive";
@@ -98,6 +100,59 @@ describe("game archives", () => {
     });
     expect(JSON.stringify(opponentArchive)).not.toContain(secret);
     expect(JSON.stringify(ownerArchive)).toContain(secret);
+  });
+
+  it("replays from a verified checkpoint to the same final state as a full replay", () => {
+    const seed = "archive-checkpoint";
+    const initial = createGame(seed);
+    const cycled = mustHave(initial.players.frodo.hand[0]);
+    const commands: readonly GameCommand[] = [
+      { action: "ring", player: "aragorn" },
+      { action: "cycle", player: "frodo", card: cycled },
+      { action: "selectPlayer", player: "saruman" },
+      { action: "ring", player: "saruman" },
+    ];
+    const archive = createGameArchive(seed, commands);
+    const checkpointEventCount = 2;
+    const checkpoint = commands
+      .slice(0, checkpointEventCount)
+      .reduce(applyGameCommand, initial);
+
+    const fullReplay = replayArchive(archive);
+    const checkpointReplay = replayArchiveFromCheckpoint(
+      archive,
+      checkpointEventCount,
+      checkpoint,
+    );
+
+    expect(checkpointReplay.errors).toEqual([]);
+    expect(hashGameState(checkpointReplay.finalState)).toBe(
+      hashGameState(fullReplay.finalState),
+    );
+    expect(checkpointReplay.finalState).toEqual(fullReplay.finalState);
+  });
+
+  it("matches state built incrementally while commands are archived", () => {
+    const seed = "archive-incremental";
+    const initial = createGame(seed);
+    const card = mustHave(initial.players.frodo.hand[0]);
+    const commands: readonly GameCommand[] = [
+      { action: "cycle", player: "frodo", card },
+      { action: "ring", player: "witchKing" },
+      { action: "selectPlayer", player: "aragorn" },
+    ];
+    let archive = createGameArchive(seed);
+    let incremental = initial;
+    for (const command of commands) {
+      archive = appendCommand(archive, command);
+      incremental = applyGameCommand(incremental, command);
+      expect(archive.finalStateHash).toBe(hashGameState(incremental));
+    }
+
+    const replay = replayArchive(archive);
+
+    expect(replay.errors).toEqual([]);
+    expect(replay.finalState).toEqual(incremental);
   });
 });
 

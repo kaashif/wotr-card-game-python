@@ -163,10 +163,10 @@ state after PR #22 and PR #23.
 
 - [ ] Formalize event metadata versioning.
 - [ ] Replay all typed events.
-- [ ] Detect rules/data/engine drift.
+- [x] Detect rules/data/engine drift.
 - [ ] Persist failing fuzz sequences as compact archive fixtures.
-- [ ] Verify checkpoint replay equals full replay.
-- [ ] Verify archive replay equals incremental state.
+- [x] Verify checkpoint replay equals full replay.
+- [x] Verify archive replay equals incremental state.
 
 ## Fuzz And Property Testing
 
