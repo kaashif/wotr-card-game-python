@@ -198,11 +198,11 @@ state after PR #22 and PR #23.
 
 ## Legal Actions And UI Affordances
 
-- [ ] Expose legal actions for the current state from the backend.
-- [ ] Expose legal card destinations from the backend.
-- [ ] Expose legal reserve actions from the backend.
-- [ ] Expose legal pending-decision choices from the backend.
-- [ ] Expose pass legality and reason from the backend.
+- [x] Expose legal actions for the current state from the backend.
+- [x] Expose legal card destinations from the backend.
+- [x] Expose legal reserve actions from the backend.
+- [x] Expose legal pending-decision choices from the backend.
+- [x] Expose pass legality and reason from the backend.
 - [ ] Stop UI code from guessing the best destination.
 
 ## Cleanup

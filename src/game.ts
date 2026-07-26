@@ -348,6 +348,29 @@ export function tryAttachItem(
   ]);
 }
 
+export function canAttachItemTo(
+  state: GameState,
+  playerId: PlayerId,
+  itemId: string,
+  wielderId: string,
+): boolean {
+  const player = state.players[playerId];
+  if (!player.hand.includes(itemId)) {
+    return false;
+  }
+  const item = state.cards[itemId];
+  if (item === undefined) {
+    return false;
+  }
+  const itemDefinition = getCardDefinition(item.cardId);
+  return (
+    itemDefinition.type === "item" &&
+    !state.roundMemory.playedCharacterOrItemCards.includes(itemDefinition.id) &&
+    !Object.values(state.attachments).some((items) => items.includes(itemId)) &&
+    isValidWielder(state, itemDefinition, wielderId)
+  );
+}
+
 export function attachItem(
   state: GameState,
   playerId: PlayerId,
@@ -1295,6 +1318,15 @@ export function tryResolveCombatLossDecision(
     nextState = resolveCombat(nextState);
   }
   return { ok: true, state: nextState, events };
+}
+
+export function legalCombatLossSelections(
+  state: GameState,
+): readonly (readonly string[])[] {
+  const decision = state.pendingDecisions[0];
+  return decision?.type === "combatLosses"
+    ? validCombatLossSelections(state, decision)
+    : [];
 }
 
 export function nextTurn(state: GameState): GameState {
