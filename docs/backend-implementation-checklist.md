@@ -153,9 +153,9 @@ state after PR #22 and PR #23.
 
 ## Visibility And Public View Models
 
-- [ ] Hide opponent hands from public views.
-- [ ] Redact hidden search information.
-- [ ] Prevent public logs from revealing hidden card identities.
+- [x] Hide opponent hands from public views.
+- [x] Redact hidden search information.
+- [x] Prevent public logs from revealing hidden card identities.
 - [ ] Separate private `GameState` from public/UI view models.
 - [ ] Add visibility-aware archive/replay output.
 
