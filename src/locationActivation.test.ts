@@ -5,14 +5,18 @@ import {
   activatePathById,
   createGame,
   eligiblePathsByNumber,
+  getCard,
+  getCardDefinition,
   resolveCombat,
   tryActivateBattlegroundFromDeck,
   tryActivatePathByChoice,
   tryReactivateBattleground,
   tryResolveForsakeDecision,
   tryResolveCycleFromHandDecision,
+  tryResolveDrawPlayCycleRestDecision,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
+import type { GameState, PlayerId } from "./types";
 
 describe("round location activation", () => {
   it("uses the scheduled side's battleground deck when it has cards", () => {
@@ -687,6 +691,74 @@ describe("round location activation", () => {
       expect(assertGameInvariants(activated)).toEqual([]);
     }
   });
+
+  it("draws five, plays an eligible card to the required zone, and cycles the rest", () => {
+    const base = createGame("minas-morgul-draw-play");
+    const owned = ownedCards(base, "witchKing");
+    const nazgul = owned.find((instanceId) => {
+      const card = getCardDefinition(getCard(base, instanceId).cardId);
+      return (
+        card.type === "character" &&
+        card.title
+          .normalize("NFD")
+          .replace(/\p{Diacritic}/gu, "")
+          .toLowerCase()
+          .includes("nazgul")
+      );
+    });
+    expect(nazgul).toBeDefined();
+    if (nazgul === undefined) {
+      return;
+    }
+    const drawnCards = [
+      nazgul,
+      ...owned.filter((instanceId) => instanceId !== nazgul).slice(0, 4),
+    ];
+    const arranged = setDrawPile(base, "witchKing", drawnCards);
+    const activation = tryActivateBattlegroundFromDeck(
+      {
+        ...arranged,
+        pendingDecisions: [],
+        battlegroundDecks: {
+          ...arranged.battlegroundDecks,
+          shadow: [
+            "minas-morgul",
+            ...arranged.battlegroundDecks.shadow.filter(
+              (id) => id !== "minas-morgul",
+            ),
+          ],
+        },
+      },
+      "minas-morgul",
+    );
+
+    expect(activation.ok).toBe(true);
+    if (!activation.ok) {
+      return;
+    }
+    expect(activation.state.pendingDecisions[0]).toMatchObject({
+      type: "drawPlayCycleRest",
+      playerId: "witchKing",
+      drawnCards,
+      playableCards: expect.arrayContaining([nazgul]),
+      allowedDestinations: ["reserve"],
+    });
+
+    const result = tryResolveDrawPlayCycleRestDecision(
+      activation.state,
+      "witchKing",
+      [{ cardId: nazgul, destination: "reserve" }],
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.witchKing.reserve).toContain(nazgul);
+      for (const cardId of drawnCards.filter((id) => id !== nazgul)) {
+        expect(result.state.players.witchKing.cycle).toContain(cardId);
+      }
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
 });
 
 function optionalPathState(
@@ -713,4 +785,43 @@ function optionalPathState(
 
 function pathNumber(pathId: string | undefined): number | undefined {
   return pathDefinitions.find((path) => path.id === pathId)?.pathNumber;
+}
+
+function ownedCards(
+  state: GameState,
+  playerId: PlayerId,
+): readonly string[] {
+  const player = state.players[playerId];
+  return [
+    ...player.draw,
+    ...player.hand,
+    ...player.cycle,
+    ...player.eliminated,
+    ...player.reserve,
+  ];
+}
+
+function setDrawPile(
+  state: GameState,
+  playerId: PlayerId,
+  draw: readonly string[],
+): GameState {
+  const player = state.players[playerId];
+  const placed = new Set(draw);
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [playerId]: {
+        ...player,
+        draw,
+        hand: [],
+        cycle: [],
+        reserve: [],
+        eliminated: ownedCards(state, playerId).filter(
+          (instanceId) => !placed.has(instanceId),
+        ),
+      },
+    },
+  };
 }

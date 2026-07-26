@@ -50,6 +50,7 @@ export type LegalPendingDecision =
       readonly drawnCards: readonly string[];
       readonly playableCards: readonly string[];
       readonly maxPlays: number;
+      readonly allowedDestinations?: readonly PlayDestination[];
     }
   | {
       readonly type: "combatLosses";
@@ -198,6 +199,12 @@ function legalPendingDecision(
             drawnCards: decision.drawnCards,
             playableCards: decision.playableCards,
             maxPlays: decision.maxPlays,
+            ...(decision.allowedDestinations === undefined
+              ? {}
+              : {
+                  allowedDestinations:
+                    decision.allowedDestinations,
+                }),
           }
         : null;
     case "combatLosses":

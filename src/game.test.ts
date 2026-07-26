@@ -228,6 +228,7 @@ describe("game engine", () => {
     const state = {
       ...createGame("pass-legality"),
       activePlayer: "frodo" as const,
+      pendingDecisions: [],
     };
 
     const result = tryPass(state);

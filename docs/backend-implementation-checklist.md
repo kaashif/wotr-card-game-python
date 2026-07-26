@@ -48,12 +48,12 @@ state after PR #22 and PR #23.
 
 ## Location Text Effects
 
-- [ ] Implement all path activation text.
+- [x] Implement all path activation text.
 - [ ] Implement all battleground activation text.
-- [ ] Implement location draw effects.
+- [x] Implement location draw effects.
 - [x] Implement location forsake effects.
 - [x] Implement location cycle effects.
-- [ ] Implement location draw/play/cycle-rest effects.
+- [x] Implement location draw/play/cycle-rest effects.
 - [ ] Implement named battleground/path activation text.
 - [x] Model mandatory vs optional location text.
 

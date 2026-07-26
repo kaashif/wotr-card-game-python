@@ -55,6 +55,7 @@ const simpleLocationDraws: Readonly<
   "imladris-rivendel": [["aragorn", 2]],
   "the-council-of-elrond": [["frodo", 1], ["aragorn", 1]],
   "khazad-dum-moria": [["saruman", 2]],
+  "dead-marshes": [["saruman", 2]],
   "the-cross-roads": [["frodo", 1], ["aragorn", 1]],
   "henneth-annun": [["aragorn", 1]],
   "shelob-s-lair": [["saruman", 2]],
@@ -155,6 +156,39 @@ const mandatoryLocationCycles: Readonly<
     { playerId: "witchKing", count: 2 },
     { playerId: "saruman", count: 2 },
   ],
+};
+const drawPlayCycleLocations: Readonly<
+  Record<
+    string,
+    {
+      readonly playerId: PlayerId;
+      readonly playable: "army" | "character" | "nazgul" | "rohan-unit";
+      readonly allowedDestinations?: readonly PlayDestination[];
+    }
+  >
+> = {
+  "morgul-vale": {
+    playerId: "witchKing",
+    playable: "nazgul",
+  },
+  "cirith-ungol": {
+    playerId: "witchKing",
+    playable: "army",
+  },
+  "helms-deep": {
+    playerId: "frodo",
+    playable: "rohan-unit",
+    allowedDestinations: ["battleground"],
+  },
+  "minas-morgul": {
+    playerId: "witchKing",
+    playable: "nazgul",
+    allowedDestinations: ["reserve"],
+  },
+  morannon: {
+    playerId: "witchKing",
+    playable: "army",
+  },
 };
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
@@ -1426,7 +1460,11 @@ export function tryResolveDrawPlayCycleRestDecision(
   let nextState = state;
   const events: GameEvent[] = [];
   for (const play of plays) {
-    if (!canPlayDrawnCardWithoutCost(nextState, playerId, play)) {
+    if (
+      (decision.allowedDestinations !== undefined &&
+        !decision.allowedDestinations.includes(play.destination)) ||
+      !canPlayDrawnCardWithoutCost(nextState, playerId, play)
+    ) {
       return rejected(state, {
         code: "invalid-destination",
         message: "A selected drawn card cannot be played to that destination.",
@@ -2011,6 +2049,56 @@ function applySimpleLocationActivationEffects(
       minimum: effect.count,
       maximum: effect.count,
       reason: `${locationId} activation`,
+      source: `location:${locationId}`,
+    });
+  }
+  const drawPlayCycle = drawPlayCycleLocations[locationId];
+  if (drawPlayCycle !== undefined) {
+    const handSize =
+      nextState.players[drawPlayCycle.playerId].hand.length;
+    nextState = drawCards(nextState, drawPlayCycle.playerId, 5);
+    const drawnCards =
+      nextState.players[drawPlayCycle.playerId].hand.slice(handSize);
+    const playableCards = drawnCards.filter((instanceId) => {
+      const card = getCardDefinition(getCard(nextState, instanceId).cardId);
+      switch (drawPlayCycle.playable) {
+        case "army":
+          return card.type === "army";
+        case "character":
+          return card.type === "character";
+        case "nazgul":
+          return (
+            card.type === "character" &&
+            normalizeName(card.title).includes("nazgul")
+          );
+        case "rohan-unit":
+          return (
+            card.faction === "rohan" &&
+            (card.type === "army" || card.type === "character")
+          );
+      }
+    });
+    if (drawnCards.length > 0) {
+      nextState = appendEvents(nextState, [
+        {
+          type: "cardsDrawn",
+          playerId: drawPlayCycle.playerId,
+          count: drawnCards.length,
+        },
+      ]);
+    }
+    nextState = enqueuePendingDecision(nextState, {
+      type: "drawPlayCycleRest",
+      playerId: drawPlayCycle.playerId,
+      drawnCards,
+      playableCards,
+      maxPlays: 1,
+      ...(drawPlayCycle.allowedDestinations === undefined
+        ? {}
+        : {
+            allowedDestinations:
+              drawPlayCycle.allowedDestinations,
+          }),
       source: `location:${locationId}`,
     });
   }
@@ -2991,7 +3079,12 @@ function appendEvents(state: GameState, events: readonly GameEvent[]): GameState
 }
 
 function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function defenseIconsFor(

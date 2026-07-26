@@ -191,6 +191,7 @@ export type PendingDecision =
       readonly drawnCards: readonly string[];
       readonly playableCards: readonly string[];
       readonly maxPlays: number;
+      readonly allowedDestinations?: readonly PlayDestination[];
       readonly source?: string;
     }
   | {
