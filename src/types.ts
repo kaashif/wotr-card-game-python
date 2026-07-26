@@ -35,6 +35,11 @@ export type ForsakeChoice =
   | { readonly source: "draw" }
   | { readonly source: "hand" | "reserve"; readonly cardId: string };
 
+export interface DrawnCardPlayChoice {
+  readonly cardId: string;
+  readonly destination: PlayDestination;
+}
+
 export type PathActivationChoice = "same-number" | "next-higher";
 
 export interface CardDefinition {

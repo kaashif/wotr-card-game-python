@@ -11,6 +11,7 @@ import type {
   CardDefinition,
   CardInstance,
   CommandResult,
+  DrawnCardPlayChoice,
   ForsakeChoice,
   ForsakeSource,
   Faction,
@@ -976,6 +977,90 @@ export function tryResolveSearchDecision(
   ]);
 }
 
+export function tryResolveDrawPlayCycleRestDecision(
+  state: GameState,
+  playerId: PlayerId,
+  plays: readonly DrawnCardPlayChoice[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "drawPlayCycleRest") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not draw/play/cycle-rest.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  const playedIds = plays.map((play) => play.cardId);
+  if (
+    plays.length > decision.maxPlays ||
+    new Set(playedIds).size !== playedIds.length ||
+    playedIds.some(
+      (instanceId) =>
+        !decision.drawnCards.includes(instanceId) ||
+        !decision.playableCards.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Selected plays must be distinct playable cards from this draw.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+  if (
+    decision.drawnCards.some(
+      (instanceId) => !state.players[playerId].hand.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Every unresolved drawn card must still be in the player's hand.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  let nextState = state;
+  const events: GameEvent[] = [];
+  for (const play of plays) {
+    if (!canPlayDrawnCardWithoutCost(nextState, playerId, play)) {
+      return rejected(state, {
+        code: "invalid-destination",
+        message: "A selected drawn card cannot be played to that destination.",
+        ...(decision.source === undefined ? {} : { source: decision.source }),
+      });
+    }
+    nextState = playDrawnCardWithoutCost(nextState, playerId, play);
+    events.push({
+      type: "cardPlayed",
+      playerId,
+      cardId: play.cardId,
+      destination: play.destination,
+    });
+  }
+
+  const cycledCards = decision.drawnCards.filter(
+    (instanceId) => !playedIds.includes(instanceId),
+  );
+  nextState = cycleCards(nextState, cycledCards);
+  nextState = resolveOldestPendingDecision(nextState);
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+    playerId,
+  });
+  return accepted(nextState, events);
+}
+
 export function nextTurn(state: GameState): GameState {
   return {
     ...state,
@@ -1670,6 +1755,80 @@ function isCardInSearchZones(
         return state.activePath?.cards.includes(instanceId) ?? false;
     }
   });
+}
+
+function canPlayDrawnCardWithoutCost(
+  state: GameState,
+  playerId: PlayerId,
+  play: DrawnCardPlayChoice,
+): boolean {
+  if (!canPlayTo(state, playerId, play.cardId, play.destination)) {
+    return false;
+  }
+  const card = getCardDefinition(getCard(state, play.cardId).cardId);
+  return (
+    (card.type !== "character" && card.type !== "item") ||
+    !state.roundMemory.playedCharacterOrItemCards.includes(card.id)
+  );
+}
+
+function playDrawnCardWithoutCost(
+  state: GameState,
+  playerId: PlayerId,
+  play: DrawnCardPlayChoice,
+): GameState {
+  const card = getCardDefinition(getCard(state, play.cardId).cardId);
+  let nextState = updatePlayer(state, playerId, (player) => ({
+    ...player,
+    hand: removeOne(player.hand, play.cardId),
+    reserve:
+      play.destination === "reserve"
+        ? [...player.reserve, play.cardId]
+        : player.reserve,
+  }));
+
+  if (play.destination === "reserve") {
+    nextState = {
+      ...nextState,
+      roundMemory: {
+        ...nextState.roundMemory,
+        playedToReserve: uniqueAppend(
+          nextState.roundMemory.playedToReserve,
+          play.cardId,
+        ),
+      },
+    };
+  } else if (play.destination === "battleground") {
+    nextState = {
+      ...nextState,
+      activeBattleground:
+        nextState.activeBattleground === null
+          ? null
+          : {
+              ...nextState.activeBattleground,
+              cards: [...nextState.activeBattleground.cards, play.cardId],
+            },
+    };
+  } else {
+    nextState = {
+      ...nextState,
+      activePath:
+        nextState.activePath === null
+          ? null
+          : {
+              ...nextState.activePath,
+              cards: [...nextState.activePath.cards, play.cardId],
+            },
+    };
+  }
+
+  if (card.type === "character" || card.type === "item") {
+    nextState = rememberCharacterOrItemPlayed(nextState, card.id);
+  }
+  return addLog(
+    nextState,
+    `${players[playerId].name} played ${card.title} to ${play.destination} from a card-effect draw.`,
+  );
 }
 
 function availableForsakeCount(state: GameState, playerId: PlayerId): number {

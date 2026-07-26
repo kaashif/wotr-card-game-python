@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   createGame,
   enqueuePendingDecision,
+  getCard,
+  getCardDefinition,
   tryPass,
+  tryResolveDrawPlayCycleRestDecision,
   tryResolveForsakeDecision,
   tryResolveSearchDecision,
 } from "./game";
@@ -249,6 +252,104 @@ describe("pending decision commands", () => {
       violation: { code: "invalid-decision-choice" },
     });
   });
+
+  it("plays a drawn card without an extra cost and cycles the rest", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("draw-play-cycle");
+    const army = ownedCardOfType(base, playerId, "army");
+    const rest = ownedCardOtherThan(base, playerId, army);
+    expect(army).toBeDefined();
+    expect(rest).toBeDefined();
+    if (army === undefined || rest === undefined) {
+      return;
+    }
+    const state = enqueuePendingDecision(
+      setAvailableCards(base, playerId, { hand: [army, rest] }),
+      {
+        type: "drawPlayCycleRest",
+        playerId,
+        drawnCards: [army, rest],
+        playableCards: [army],
+        maxPlays: 1,
+        source: "test:draw-play-cycle",
+      },
+    );
+
+    const result = tryResolveDrawPlayCycleRestDecision(state, playerId, [
+      { cardId: army, destination: "reserve" },
+    ]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players[playerId].reserve).toContain(army);
+      expect(result.state.players[playerId].cycle).toContain(rest);
+      expect(result.state.players[playerId].hand).toEqual([]);
+      expect(result.state.pendingDecisions).toEqual([]);
+      expect(result.state.roundMemory.playedToReserve).toContain(army);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("allows playing none and cycles every drawn card", () => {
+    const playerId: PlayerId = "witchKing";
+    const base = createGame("cycle-entire-draw");
+    const first = base.players[playerId].hand[0];
+    const second = base.players[playerId].hand[1];
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    if (first === undefined || second === undefined) {
+      return;
+    }
+    const state = enqueuePendingDecision(base, {
+      type: "drawPlayCycleRest",
+      playerId,
+      drawnCards: [first, second],
+      playableCards: [],
+      maxPlays: 2,
+    });
+
+    const result = tryResolveDrawPlayCycleRestDecision(state, playerId, []);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players[playerId].cycle).toEqual(
+        expect.arrayContaining([first, second]),
+      );
+      expect(result.state.players[playerId].hand).not.toContain(first);
+      expect(result.state.players[playerId].hand).not.toContain(second);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("rejects an illegal drawn-card destination without partial cycling", () => {
+    const playerId: PlayerId = "saruman";
+    const base = createGame("invalid-drawn-destination");
+    const army = ownedCardOfType(base, playerId, "army");
+    expect(army).toBeDefined();
+    if (army === undefined) {
+      return;
+    }
+    const state = enqueuePendingDecision(
+      setAvailableCards(base, playerId, { hand: [army] }),
+      {
+        type: "drawPlayCycleRest",
+        playerId,
+        drawnCards: [army],
+        playableCards: [army],
+        maxPlays: 1,
+      },
+    );
+
+    const result = tryResolveDrawPlayCycleRestDecision(state, playerId, [
+      { cardId: army, destination: "path" },
+    ]);
+
+    expect(result).toMatchObject({
+      ok: false,
+      state,
+      violation: { code: "invalid-destination" },
+    });
+  });
 });
 
 function moveToReserve(
@@ -307,4 +408,26 @@ function setAvailableCards(
       },
     },
   };
+}
+
+function ownedCardOfType(
+  state: GameState,
+  playerId: PlayerId,
+  type: "army" | "character",
+): string | undefined {
+  return Object.keys(state.cards).find((instanceId) => {
+    const card = getCardDefinition(getCard(state, instanceId).cardId);
+    return card.owner === playerId && card.type === type;
+  });
+}
+
+function ownedCardOtherThan(
+  state: GameState,
+  playerId: PlayerId,
+  excluded: string | undefined,
+): string | undefined {
+  return Object.keys(state.cards).find((instanceId) => {
+    const card = getCardDefinition(getCard(state, instanceId).cardId);
+    return card.owner === playerId && instanceId !== excluded;
+  });
 }

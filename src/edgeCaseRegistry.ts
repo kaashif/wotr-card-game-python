@@ -107,7 +107,7 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "card-draw-play-cycle-rest",
     category: "card",
     title: "Draw N, play up to M, cycle rest can satisfy play costs.",
-    status: "blocked",
+    status: "implemented",
     sources: ["rules:213-216", "bgg:3402025", "bgg:3716703"],
   },
   {
