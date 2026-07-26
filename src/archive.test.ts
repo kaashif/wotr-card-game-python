@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendCommand,
+  applyGameCommand,
+  createPublicArchive,
   createGameArchive,
   currentArchiveMetadata,
   hashGameState,
+  journalEventVersion,
   replayArchive,
+  replayArchiveFromCheckpoint,
 } from "./archive";
 import { createGame } from "./game";
 import type { GameArchive, GameCommand } from "./archive";
@@ -65,6 +69,32 @@ describe("game archives", () => {
     );
   });
 
+  it("rejects an unsupported journal event version", () => {
+    const initial = createGame("archive-event-version");
+    const card = mustHave(initial.players.frodo.hand[0]);
+    const archive = createGameArchive("archive-event-version", [
+      { action: "cycle", player: "frodo", card },
+    ]);
+    const [event] = archive.events;
+    expect(event).toBeDefined();
+    if (event === undefined) {
+      return;
+    }
+    const changedVersion = {
+      ...archive,
+      events: [
+        {
+          ...event,
+          eventVersion: journalEventVersion + 1,
+        },
+      ],
+    } as unknown as GameArchive;
+
+    expect(replayArchive(changedVersion).errors).toContainEqual(
+      expect.stringContaining("version mismatch"),
+    );
+  });
+
   it("refuses to append commands to an archive whose hashes no longer verify", () => {
     const initial = createGame("archive-append");
     const card = mustHave(initial.players.frodo.hand[0]);
@@ -79,6 +109,77 @@ describe("game archives", () => {
     expect(() => appendCommand(corrupted, { action: "ring", player: "frodo" })).toThrow(
       /Cannot append to invalid archive/,
     );
+  });
+
+  it("creates viewer-specific archives without opponent private card identities", () => {
+    const initial = createGame("archive-public-view");
+    const secret = mustHave(initial.players.saruman.hand[0]);
+    const archive = createGameArchive("archive-public-view", [
+      { action: "cycle", player: "saruman", card: secret },
+    ]);
+
+    const opponentArchive = createPublicArchive(archive, "frodo");
+    const ownerArchive = createPublicArchive(archive, "saruman");
+
+    expect(opponentArchive.events[0]?.command).toEqual({
+      action: "cycle",
+      player: "saruman",
+    });
+    expect(JSON.stringify(opponentArchive)).not.toContain(secret);
+    expect(JSON.stringify(ownerArchive)).toContain(secret);
+  });
+
+  it("replays from a verified checkpoint to the same final state as a full replay", () => {
+    const seed = "archive-checkpoint";
+    const initial = createGame(seed);
+    const cycled = mustHave(initial.players.frodo.hand[0]);
+    const commands: readonly GameCommand[] = [
+      { action: "ring", player: "aragorn" },
+      { action: "cycle", player: "frodo", card: cycled },
+      { action: "selectPlayer", player: "saruman" },
+      { action: "ring", player: "saruman" },
+    ];
+    const archive = createGameArchive(seed, commands);
+    const checkpointEventCount = 2;
+    const checkpoint = commands
+      .slice(0, checkpointEventCount)
+      .reduce(applyGameCommand, initial);
+
+    const fullReplay = replayArchive(archive);
+    const checkpointReplay = replayArchiveFromCheckpoint(
+      archive,
+      checkpointEventCount,
+      checkpoint,
+    );
+
+    expect(checkpointReplay.errors).toEqual([]);
+    expect(hashGameState(checkpointReplay.finalState)).toBe(
+      hashGameState(fullReplay.finalState),
+    );
+    expect(checkpointReplay.finalState).toEqual(fullReplay.finalState);
+  });
+
+  it("matches state built incrementally while commands are archived", () => {
+    const seed = "archive-incremental";
+    const initial = createGame(seed);
+    const card = mustHave(initial.players.frodo.hand[0]);
+    const commands: readonly GameCommand[] = [
+      { action: "cycle", player: "frodo", card },
+      { action: "ring", player: "witchKing" },
+      { action: "selectPlayer", player: "aragorn" },
+    ];
+    let archive = createGameArchive(seed);
+    let incremental = initial;
+    for (const command of commands) {
+      archive = appendCommand(archive, command);
+      incremental = applyGameCommand(incremental, command);
+      expect(archive.finalStateHash).toBe(hashGameState(incremental));
+    }
+
+    const replay = replayArchive(archive);
+
+    expect(replay.errors).toEqual([]);
+    expect(replay.finalState).toEqual(incremental);
   });
 });
 

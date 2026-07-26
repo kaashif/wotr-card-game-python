@@ -65,7 +65,7 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "location-activated-path-history",
     category: "location",
     title: "Specific paths cannot be activated more than once per game.",
-    status: "scaffolded",
+    status: "implemented",
     sources: ["rules:116-121", "bgg:3021148", "bgg:3121693"],
   },
   {
@@ -93,21 +93,21 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "combat-loss-pending-decision",
     category: "combat",
     title: "Defender loss assignment must be a pending decision when ambiguous.",
-    status: "scaffolded",
+    status: "implemented",
     sources: ["rules:270-285", "rules:310-320"],
   },
   {
     id: "location-reactivate-battleground",
     category: "location",
     title: "Reactivation takes battleground from scoring area and can ignore defense.",
-    status: "blocked",
+    status: "implemented",
     sources: ["rules:99-101", "rules:302-304", "bgg:3017468", "bgg:3107840"],
   },
   {
     id: "card-draw-play-cycle-rest",
     category: "card",
     title: "Draw N, play up to M, cycle rest can satisfy play costs.",
-    status: "blocked",
+    status: "implemented",
     sources: ["rules:213-216", "bgg:3402025", "bgg:3716703"],
   },
   {

@@ -43,6 +43,7 @@ function normalizeGameState(state: GameState): GameState {
   return {
     ...state,
     activatedPaths: state.activatedPaths ?? [],
+    additionalActiveBattlegrounds: state.additionalActiveBattlegrounds ?? [],
     activePath:
       state.activePath === null
         ? null
@@ -63,5 +64,6 @@ function normalizeGameState(state: GameState): GameState {
       paths: { free: [], shadow: [] },
     },
     corruption: state.corruption ?? { tokens: 0 },
+    outcome: state.outcome ?? null,
   };
 }

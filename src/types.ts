@@ -31,6 +31,17 @@ export type PlayDestination = "reserve" | "battleground" | "path";
 
 export type ForsakeSource = "hand" | "reserve" | "draw";
 
+export type ForsakeChoice =
+  | { readonly source: "draw" }
+  | { readonly source: "hand" | "reserve"; readonly cardId: string };
+
+export interface DrawnCardPlayChoice {
+  readonly cardId: string;
+  readonly destination: PlayDestination;
+}
+
+export type PathActivationChoice = "same-number" | "next-higher";
+
 export interface CardDefinition {
   readonly id: string;
   readonly title: string;
@@ -89,6 +100,7 @@ export interface ActiveBattleground {
   readonly cards: readonly string[];
   readonly attackTokens: number;
   readonly defenseTokens: number;
+  readonly ignorePrintedDefense?: boolean;
 }
 
 export interface PathDefinition {
@@ -128,6 +140,12 @@ export interface CorruptionState {
   readonly tokens: number;
 }
 
+export interface GameOutcome {
+  readonly winner: Side;
+  readonly reason: "early-score-gap" | "final-scoring";
+  readonly finalScore: ScoreState;
+}
+
 export interface LogEntry {
   readonly id: number;
   readonly message: string;
@@ -151,6 +169,9 @@ export type PendingDecision =
       readonly playerId: PlayerId;
       readonly reason: string;
       readonly minimum: number;
+      readonly maximum?: number;
+      readonly drawAfterResolution?: number;
+      readonly addPathAttackAfterResolution?: number;
       readonly source?: string;
     }
   | {
@@ -160,6 +181,8 @@ export type PendingDecision =
       readonly locationId: string;
       readonly attackToCancel: number;
       readonly candidates: readonly string[];
+      readonly resumeCombat?: boolean;
+      readonly activatePathAfterResolution?: string;
       readonly source?: string;
     }
   | {
@@ -168,6 +191,15 @@ export type PendingDecision =
       readonly drawnCards: readonly string[];
       readonly playableCards: readonly string[];
       readonly maxPlays: number;
+      readonly allowedDestinations?: readonly PlayDestination[];
+      readonly source?: string;
+    }
+  | {
+      readonly type: "cycleFromHand";
+      readonly playerId: PlayerId;
+      readonly minimum: number;
+      readonly maximum: number;
+      readonly reason: string;
       readonly source?: string;
     }
   | {
@@ -175,6 +207,10 @@ export type PendingDecision =
       readonly playerId: PlayerId;
       readonly zones: readonly Zone[];
       readonly choices: readonly string[];
+      readonly minimum: number;
+      readonly maximum: number;
+      readonly destination: "hand" | "cycle" | "eliminated";
+      readonly recycleCycleAfterResolution?: boolean;
       readonly source?: string;
     };
 
@@ -190,10 +226,15 @@ export type GameEvent =
   | { readonly type: "ringTokenUsed"; readonly playerId: PlayerId }
   | { readonly type: "winnowed"; readonly playerId: PlayerId; readonly cards: readonly string[] }
   | { readonly type: "roundStarted"; readonly round: number; readonly pathId: string | null; readonly battlegroundId: string | null }
+  | { readonly type: "pathActivated"; readonly pathId: string; readonly replacedPathId: string | null }
+  | { readonly type: "battlegroundActivated"; readonly battlegroundId: string; readonly reactivated: boolean; readonly ignorePrintedDefense: boolean }
   | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
+  | { readonly type: "unusedRingTokensScored"; readonly points: ScoreState }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
-  | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision };
+  | { readonly type: "pendingDecisionCreated"; readonly decision: PendingDecision }
+  | { readonly type: "pendingDecisionResolved"; readonly decisionType: PendingDecision["type"]; readonly playerId?: PlayerId }
+  | { readonly type: "gameEnded"; readonly outcome: GameOutcome };
 
 export interface GameState {
   readonly schemaVersion: 1;
@@ -206,6 +247,7 @@ export interface GameState {
   readonly pathDeck: readonly string[];
   readonly activatedPaths: readonly string[];
   readonly activeBattleground: ActiveBattleground | null;
+  readonly additionalActiveBattlegrounds: readonly ActiveBattleground[];
   readonly activePath: ActivePath | null;
   readonly players: Readonly<Record<PlayerId, PlayerState>>;
   readonly cards: Readonly<Record<string, CardInstance>>;
@@ -216,6 +258,7 @@ export interface GameState {
   readonly scoringAreas: ScoringAreaState;
   readonly corruption: CorruptionState;
   readonly score: ScoreState;
+  readonly outcome: GameOutcome | null;
   readonly log: readonly LogEntry[];
   readonly selection: SelectionState;
 }
@@ -234,7 +277,21 @@ export type RuleViolationCode =
   | "reserve-card-played-this-round"
   | "repeat-character-or-item-this-round"
   | "pass-not-allowed"
-  | "insufficient-hand-cards";
+  | "insufficient-hand-cards"
+  | "no-active-path"
+  | "unknown-path"
+  | "path-already-activated"
+  | "path-not-eligible"
+  | "no-eligible-path"
+  | "pending-decision-required"
+  | "no-pending-decision"
+  | "wrong-decision-type"
+  | "wrong-decision-player"
+  | "invalid-decision-choice"
+  | "insufficient-decision-choices"
+  | "unknown-battleground"
+  | "battleground-not-available"
+  | "battleground-not-scored";
 
 export interface RuleViolation {
   readonly code: RuleViolationCode;

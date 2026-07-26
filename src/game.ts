@@ -11,10 +11,13 @@ import type {
   CardDefinition,
   CardInstance,
   CommandResult,
+  DrawnCardPlayChoice,
+  ForsakeChoice,
   ForsakeSource,
   Faction,
   GameEvent,
   GameState,
+  PathActivationChoice,
   Phase,
   PendingDecision,
   PlayDestination,
@@ -22,12 +25,180 @@ import type {
   PlayerState,
   RuleViolation,
   Side,
+  Zone,
 } from "./types";
 
 const startingHandSize = 7;
 const setupCycleCount = 2;
 const handLimit = 6;
 const baseCarryoverLimit = 2;
+const bowOfGaladhrimId = "bow-of-galadhrim-57";
+const shadowBattlegroundPathRestrictedCards = new Set([
+  "mouth-of-sauron-154",
+  "the-lidless-eye-156",
+]);
+const weaponCardIds = new Set([
+  "anduril-46",
+  "blade-of-westernesse-47",
+  bowOfGaladhrimId,
+  "dwarven-axe-68",
+  "sting-76",
+  "gandalfs-staff-94",
+  "glamdring-95",
+  "saruman-s-staff-110",
+  "whip-of-many-thongs-124",
+  "morgul-blade-162",
+]);
+const simpleLocationDraws: Readonly<
+  Record<string, readonly (readonly [PlayerId, number])[]>
+> = {
+  "bag-end": [["frodo", 2]],
+  "bucklebury-ferry": [["witchKing", 1], ["frodo", 1]],
+  "inn-of-the-prancing-pony": [["witchKing", 2], ["saruman", 2]],
+  weathertop: [["witchKing", 2]],
+  "imladris-rivendel": [["aragorn", 2]],
+  "the-council-of-elrond": [["frodo", 1], ["aragorn", 1]],
+  "khazad-dum-moria": [["saruman", 2]],
+  "dead-marshes": [["saruman", 2]],
+  "the-cross-roads": [["frodo", 1], ["aragorn", 1]],
+  "henneth-annun": [["aragorn", 1]],
+  "shelob-s-lair": [["saruman", 2]],
+  orodruin: [["witchKing", 2]],
+  "crack-of-mount-doom": [["saruman", 2]],
+  moria: [["saruman", 2]],
+  harad: [["witchKing", 1], ["saruman", 1]],
+  umbar: [["witchKing", 1], ["saruman", 1]],
+};
+const mandatoryLocationForsakes: Readonly<
+  Record<
+    string,
+    readonly {
+      readonly playerId: PlayerId;
+      readonly drawAfterResolution?: number;
+    }[]
+  >
+> = {
+  "the-old-forest": [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+  "fords-of-bruinen": [
+    { playerId: "frodo", drawAfterResolution: 3 },
+    { playerId: "aragorn", drawAfterResolution: 3 },
+  ],
+  caradhras: [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+  "emyn-muil": [
+    { playerId: "frodo" },
+    { playerId: "aragorn" },
+  ],
+};
+const optionalLocationForsakes: Readonly<
+  Record<
+    string,
+    {
+      readonly playerId: PlayerId;
+      readonly drawAfterResolution?: number;
+      readonly addPathAttackAfterResolution?: number;
+    }
+  >
+> = {
+  "the-doors-of-durin": {
+    playerId: "saruman",
+    addPathAttackAfterResolution: 1,
+  },
+  osgiliath: {
+    playerId: "aragorn",
+    drawAfterResolution: 3,
+  },
+  "minas-tirith": {
+    playerId: "aragorn",
+    drawAfterResolution: 3,
+  },
+  "dol-amroth": {
+    playerId: "aragorn",
+    drawAfterResolution: 1,
+  },
+  pelargir: {
+    playerId: "aragorn",
+    drawAfterResolution: 1,
+  },
+};
+const locationDrawThenCycle: Readonly<
+  Record<
+    string,
+    readonly {
+      readonly playerId: PlayerId;
+      readonly draw: number;
+      readonly cycle: number;
+    }[]
+  >
+> = {
+  "gildors-encampment": [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+  egladil: [
+    { playerId: "frodo", draw: 2, cycle: 1 },
+    { playerId: "aragorn", draw: 2, cycle: 1 },
+  ],
+  "lothlorien-lorien": [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+  "amon-hen": [
+    { playerId: "witchKing", draw: 1, cycle: 1 },
+  ],
+  rivendel: [
+    { playerId: "aragorn", draw: 1, cycle: 1 },
+  ],
+};
+const mandatoryLocationCycles: Readonly<
+  Record<string, readonly { readonly playerId: PlayerId; readonly count: number }[]>
+> = {
+  "dimrill-dale": [
+    { playerId: "witchKing", count: 2 },
+    { playerId: "saruman", count: 2 },
+  ],
+};
+const drawPlayCycleLocations: Readonly<
+  Record<
+    string,
+    {
+      readonly playerId: PlayerId;
+      readonly playable: "army" | "character" | "nazgul" | "rohan-unit";
+      readonly allowedDestinations?: readonly PlayDestination[];
+    }
+  >
+> = {
+  "morgul-vale": {
+    playerId: "witchKing",
+    playable: "nazgul",
+  },
+  "cirith-ungol": {
+    playerId: "witchKing",
+    playable: "army",
+  },
+  "helms-deep": {
+    playerId: "frodo",
+    playable: "rohan-unit",
+    allowedDestinations: ["battleground"],
+  },
+  "minas-morgul": {
+    playerId: "witchKing",
+    playable: "nazgul",
+    allowedDestinations: ["reserve"],
+  },
+  morannon: {
+    playerId: "witchKing",
+    playable: "army",
+  },
+};
+const namedBattlegroundActivations: Readonly<Record<string, string>> = {
+  edoras: "helms-deep",
+  lorien: "dol-guldur",
+  "dol-guldur": "lorien",
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -115,9 +286,13 @@ export function createGame(seed = String(Date.now())): GameState {
         rng,
       ),
     },
-    pathDeck: pathDefinitions.map((path) => path.id),
+    pathDeck: shuffle(
+      pathDefinitions.map((path) => path.id),
+      rng,
+    ),
     activatedPaths: [],
     activeBattleground: null,
+    additionalActiveBattlegrounds: [],
     activePath: null,
     players: playerStates,
     cards: instances,
@@ -131,6 +306,7 @@ export function createGame(seed = String(Date.now())): GameState {
     },
     corruption: { tokens: 0 },
     score: { free: 0, shadow: 0 },
+    outcome: null,
     log: [],
     selection: { playerId: "frodo", cardId: null },
   };
@@ -196,9 +372,14 @@ export function tryPlayCard(
     });
   }
   const nextState = playCard(state, playerId, instanceId, destination, costCardId);
-  return accepted(nextState, [
+  const finalState = appendEvents(nextState, [
     { type: "cardPlayed", playerId, cardId: instanceId, destination },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function playCard(
@@ -278,7 +459,12 @@ export function playCard(
   }
 
   return addLog(
-    nextState,
+    applyPlayedOrMovedForsakeEffects(
+      applyWhenPlayedDrawEffects(nextState, playerId, instanceId),
+      playerId,
+      instanceId,
+      destination,
+    ),
     `${players[playerId].name} played ${cardDef.title} to ${destination}.`,
   );
 }
@@ -334,9 +520,37 @@ export function tryAttachItem(
   }
 
   const nextState = attachItem(state, playerId, itemId, wielderId, costCardId);
-  return accepted(nextState, [
+  const finalState = appendEvents(nextState, [
     { type: "itemAttached", playerId, itemId, wielderId },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
+}
+
+export function canAttachItemTo(
+  state: GameState,
+  playerId: PlayerId,
+  itemId: string,
+  wielderId: string,
+): boolean {
+  const player = state.players[playerId];
+  if (!player.hand.includes(itemId)) {
+    return false;
+  }
+  const item = state.cards[itemId];
+  if (item === undefined) {
+    return false;
+  }
+  const itemDefinition = getCardDefinition(item.cardId);
+  return (
+    itemDefinition.type === "item" &&
+    !state.roundMemory.playedCharacterOrItemCards.includes(itemDefinition.id) &&
+    !Object.values(state.attachments).some((items) => items.includes(itemId)) &&
+    isValidWielder(state, itemDefinition, wielderId)
+  );
 }
 
 export function attachItem(
@@ -374,7 +588,11 @@ export function attachItem(
 
   const itemDef = getCardDefinition(getCard(state, itemId).cardId);
   return addLog(
-    rememberCharacterOrItemPlayed(nextState, itemDef.id),
+    applyWhenPlayedDrawEffects(
+      rememberCharacterOrItemPlayed(nextState, itemDef.id),
+      playerId,
+      itemId,
+    ),
     `${players[playerId].name} attached ${itemDef.title}.`,
   );
 }
@@ -516,9 +734,15 @@ export function tryMoveFromReserve(
       source: "rules:222-227",
     });
   }
-  return accepted(moveFromReserve(state, playerId, instanceId, destination), [
+  const nextState = moveFromReserve(state, playerId, instanceId, destination);
+  const finalState = appendEvents(nextState, [
     { type: "cardMoved", playerId, cardId: instanceId, destination },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function moveFromReserve(
@@ -558,7 +782,12 @@ export function moveFromReserve(
   }
 
   return addLog(
-    nextState,
+    applyPlayedOrMovedForsakeEffects(
+      nextState,
+      playerId,
+      instanceId,
+      destination,
+    ),
     `${players[playerId].name} moved ${cardDef.title} to ${destination}.`,
   );
 }
@@ -639,10 +868,14 @@ export function forsakeCard(
     return null;
   }
   if (source === "hand" && player.hand.includes(instanceId)) {
-    return eliminateCards(state, [instanceId]);
+    return forsakeChosenCard(state, instanceId, source);
   }
-  if (source === "reserve" && player.reserve.includes(instanceId)) {
-    return eliminateCards(state, [instanceId]);
+  if (
+    source === "reserve" &&
+    (player.reserve.includes(instanceId) ||
+      controlledReserveItems(state, playerId).includes(instanceId))
+  ) {
+    return forsakeChosenCard(state, instanceId, source);
   }
   return null;
 }
@@ -696,32 +929,257 @@ export function addActivePathDefenseTokens(state: GameState, count: number): Gam
   };
 }
 
+export function tryActivateBattlegroundFromDeck(
+  state: GameState,
+  battlegroundId: string,
+): CommandResult {
+  const battleground = battlegroundById.get(battlegroundId);
+  if (battleground === undefined) {
+    return rejected(state, {
+      code: "unknown-battleground",
+      message: `Battleground ${battlegroundId} is not defined.`,
+      source: "reference:battlegrounds",
+    });
+  }
+  const deckSide = (["free", "shadow"] as const).find((side) =>
+    state.battlegroundDecks[side].includes(battlegroundId),
+  );
+  if (
+    deckSide === undefined ||
+    activeBattlegroundIds(state).includes(battlegroundId)
+  ) {
+    return rejected(state, {
+      code: "battleground-not-available",
+      message: "That battleground is not available in a battleground deck.",
+      source: "rules:location-step",
+    });
+  }
+
+  const remainingDeck = state.battlegroundDecks[deckSide].filter(
+    (id) => id !== battlegroundId,
+  );
+  const nextState = applySimpleLocationActivationEffects(
+    appendActiveBattleground(
+    {
+      ...state,
+      battlegroundDecks: {
+        ...state.battlegroundDecks,
+        [deckSide]: shuffle(
+          remainingDeck,
+          mulberry32(
+            hashSeed(
+              `${state.seed}:battleground-search:${state.eventLog.length}:${battlegroundId}`,
+            ),
+          ),
+        ),
+      },
+    },
+    createActiveBattleground(battlegroundId),
+    ),
+    battlegroundId,
+  );
+  const activationEvent: GameEvent = {
+    type: "battlegroundActivated",
+    battlegroundId,
+    reactivated: false,
+    ignorePrintedDefense: false,
+  };
+  const finalState = appendEvents(
+    addLog(nextState, `Activated ${battleground.title} from the ${deckSide} deck.`),
+    [activationEvent],
+  );
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
+}
+
+export function tryReactivateBattleground(
+  state: GameState,
+  battlegroundId: string,
+  activatingSide: Side,
+): CommandResult {
+  const battleground = battlegroundById.get(battlegroundId);
+  if (battleground === undefined) {
+    return rejected(state, {
+      code: "unknown-battleground",
+      message: `Battleground ${battlegroundId} is not defined.`,
+      source: "reference:battlegrounds",
+    });
+  }
+  const scoringSide = (["free", "shadow"] as const).find((side) =>
+    state.scoringAreas.battlegrounds[side].includes(battlegroundId),
+  );
+  if (
+    scoringSide === undefined ||
+    activeBattlegroundIds(state).includes(battlegroundId)
+  ) {
+    return rejected(state, {
+      code: "battleground-not-scored",
+      message: "Only a battleground in a scoring area can be reactivated.",
+      source: "rules:reactivation",
+    });
+  }
+
+  const ignorePrintedDefense = scoringSide !== activatingSide;
+  const nextState = applySimpleLocationActivationEffects(
+    appendActiveBattleground(
+    {
+      ...state,
+      scoringAreas: {
+        ...state.scoringAreas,
+        battlegrounds: {
+          ...state.scoringAreas.battlegrounds,
+          [scoringSide]: state.scoringAreas.battlegrounds[scoringSide].filter(
+            (id) => id !== battlegroundId,
+          ),
+        },
+      },
+    },
+    {
+      ...createActiveBattleground(battlegroundId),
+      ignorePrintedDefense,
+    },
+    ),
+    battlegroundId,
+  );
+  const activationEvent: GameEvent = {
+    type: "battlegroundActivated",
+    battlegroundId,
+    reactivated: true,
+    ignorePrintedDefense,
+  };
+  const finalState = appendEvents(
+    addLog(nextState, `Reactivated ${battleground.title} from the ${scoringSide} scoring area.`),
+    [activationEvent],
+  );
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
+}
+
 export function activatePathById(state: GameState, pathId: string): GameState | null {
   const path = pathById.get(pathId);
-  if (path === undefined || state.activatedPaths.includes(pathId)) {
+  if (
+    path === undefined ||
+    state.activatedPaths.includes(pathId) ||
+    !state.pathDeck.includes(pathId)
+  ) {
     return null;
   }
-  let nextState = state.activePath === null ? state : scorePath(state, state.activePath);
+  let nextState =
+    state.activePath === null
+      ? state
+      : scorePath(state, state.activePath, {
+          activatePathAfterResolution: pathId,
+        });
+  if (nextState.pendingDecisions.length > state.pendingDecisions.length) {
+    return nextState;
+  }
   nextState = removeScoredActivePathCards(nextState);
-  return addLog(
-    {
+  return applySimpleLocationActivationEffects(
+    addLog(
+      {
       ...nextState,
       activePath: { id: pathId, cards: [], attackTokens: 0, defenseTokens: 0 },
+      currentPathNumber: path.pathNumber,
       pathDeck: nextState.pathDeck.filter((id) => id !== pathId),
       activatedPaths: [...nextState.activatedPaths, pathId],
-    },
-    `Activated ${path.title}.`,
+      },
+      `Activated ${path.title}.`,
+    ),
+    pathId,
   );
+}
+
+export function tryActivatePathByChoice(
+  state: GameState,
+  pathId: string,
+  choice: PathActivationChoice,
+): CommandResult {
+  const activePathId = state.activePath?.id;
+  if (activePathId === undefined) {
+    return rejected(state, {
+      code: "no-active-path",
+      message: "A path-choice effect requires an active path.",
+      source: "rules:location-step",
+    });
+  }
+  const activePath = pathById.get(activePathId);
+  if (activePath === undefined) {
+    return rejected(state, {
+      code: "unknown-path",
+      message: `The active path ${activePathId} is not defined.`,
+      source: "reference:paths",
+    });
+  }
+  if (!pathById.has(pathId)) {
+    return rejected(state, {
+      code: "unknown-path",
+      message: `Path ${pathId} is not defined.`,
+      source: "reference:paths",
+    });
+  }
+  if (state.activatedPaths.includes(pathId)) {
+    return rejected(state, {
+      code: "path-already-activated",
+      message: "A specific path cannot be activated more than once per game.",
+      source: "rules:location-step",
+    });
+  }
+
+  const requiredNumber =
+    choice === "same-number"
+      ? activePath.pathNumber
+      : activePath.pathNumber + 1;
+  const eligible = eligiblePathsByNumber(state, requiredNumber);
+  if (eligible.length === 0) {
+    return rejected(state, {
+      code: "no-eligible-path",
+      message: `No unactivated path ${requiredNumber} remains available.`,
+      source: "rules:location-step",
+    });
+  }
+  if (!eligible.includes(pathId)) {
+    return rejected(state, {
+      code: "path-not-eligible",
+      message: `That path is not eligible for a ${choice} activation.`,
+      source: "rules:location-step",
+    });
+  }
+
+  const nextState = activatePathById(state, pathId);
+  if (nextState === null) {
+    return rejected(state, {
+      code: "path-not-eligible",
+      message: "That path is no longer available for activation.",
+      source: "rules:location-step",
+    });
+  }
+  if (nextState.activePath?.id !== pathId) {
+    const events = nextState.eventLog.slice(state.eventLog.length);
+    if (events.length === 0) {
+      throw new Error("Deferred path activation must emit a pending-decision event.");
+    }
+    return { ok: true, state: nextState, events };
+  }
+  return accepted(nextState, [
+    { type: "pathActivated", pathId, replacedPathId: activePathId },
+  ]);
 }
 
 export function eligiblePathsByNumber(
   state: GameState,
   pathNumber: number,
 ): readonly string[] {
-  return pathDefinitions
-    .filter((path) => path.pathNumber === pathNumber)
-    .map((path) => path.id)
-    .filter((pathId) => !state.activatedPaths.includes(pathId));
+  return state.pathDeck.filter(
+    (pathId) =>
+      pathById.get(pathId)?.pathNumber === pathNumber &&
+      !state.activatedPaths.includes(pathId),
+  );
 }
 
 export function enqueuePendingDecision(
@@ -743,6 +1201,464 @@ export function resolveOldestPendingDecision(state: GameState): GameState {
   return { ...state, pendingDecisions: remaining };
 }
 
+export function tryResolveForsakeDecision(
+  state: GameState,
+  playerId: PlayerId,
+  choices: readonly ForsakeChoice[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "forsake") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not forsake.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+
+  const minimumChoices = Math.min(
+    decision.minimum,
+    availableForsakeCount(state, playerId),
+  );
+  const maximumChoices = Math.min(
+    decision.maximum ?? decision.minimum,
+    availableForsakeCount(state, playerId),
+  );
+  if (
+    choices.length < minimumChoices ||
+    choices.length > maximumChoices
+  ) {
+    return rejected(state, {
+      code: "insufficient-decision-choices",
+      message:
+        minimumChoices === maximumChoices
+          ? `This decision requires ${minimumChoices} forsake choice${minimumChoices === 1 ? "" : "s"}.`
+          : `This decision allows between ${minimumChoices} and ${maximumChoices} forsake choices.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  let nextState = state;
+  const events: GameEvent[] = [];
+  for (const choice of choices) {
+    const cardId = choice.source === "draw" ? undefined : choice.cardId;
+    const forsaken = forsakeCard(nextState, playerId, choice.source, cardId);
+    if (forsaken === null || forsaken === nextState) {
+      return rejected(state, {
+        code: "invalid-decision-choice",
+        message: "A selected card is not available from that forsake source.",
+        ...(decision.source === undefined ? {} : { source: decision.source }),
+      });
+    }
+    nextState = forsaken;
+    events.push(
+      cardId === undefined
+        ? { type: "cardForsaken", playerId, source: choice.source }
+        : { type: "cardForsaken", playerId, source: choice.source, cardId },
+    );
+  }
+
+  if (
+    choices.length > 0 &&
+    decision.drawAfterResolution !== undefined
+  ) {
+    const handSize = nextState.players[playerId].hand.length;
+    nextState = drawCards(
+      nextState,
+      playerId,
+      decision.drawAfterResolution,
+    );
+    const drawn = nextState.players[playerId].hand.length - handSize;
+    if (drawn > 0) {
+      events.push({ type: "cardsDrawn", playerId, count: drawn });
+    }
+  }
+  if (
+    choices.length > 0 &&
+    decision.addPathAttackAfterResolution !== undefined
+  ) {
+    nextState = addActivePathAttackTokens(
+      nextState,
+      decision.addPathAttackAfterResolution,
+    );
+  }
+  nextState = resolveOldestPendingDecision(nextState);
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+    playerId,
+  });
+  return accepted(nextState, events);
+}
+
+export function tryResolveCycleFromHandDecision(
+  state: GameState,
+  playerId: PlayerId,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "cycleFromHand") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not cycle from hand.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  const hand = state.players[playerId].hand;
+  const minimum = Math.min(decision.minimum, hand.length);
+  const maximum = Math.min(decision.maximum, hand.length);
+  if (
+    selectedCards.length < minimum ||
+    selectedCards.length > maximum ||
+    new Set(selectedCards).size !== selectedCards.length ||
+    selectedCards.some((cardId) => !hand.includes(cardId))
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: `Select between ${minimum} and ${maximum} different cards from hand to cycle.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const nextState = resolveOldestPendingDecision(
+    cycleCards(state, selectedCards),
+  );
+  return accepted(nextState, [
+    ...selectedCards.map((cardId) => ({
+      type: "cardCycled" as const,
+      playerId,
+      cardId,
+    })),
+    {
+      type: "pendingDecisionResolved",
+      decisionType: decision.type,
+      playerId,
+    },
+  ]);
+}
+
+export function tryResolveSearchDecision(
+  state: GameState,
+  playerId: PlayerId,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "search") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not search.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  if (
+    selectedCards.length < decision.minimum ||
+    selectedCards.length > decision.maximum
+  ) {
+    return rejected(state, {
+      code: "insufficient-decision-choices",
+      message: `Select between ${decision.minimum} and ${decision.maximum} search results.`,
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+  if (
+    new Set(selectedCards).size !== selectedCards.length ||
+    selectedCards.some(
+      (instanceId) =>
+        !decision.choices.includes(instanceId) ||
+        !isCardInSearchZones(
+          state,
+          playerId,
+          instanceId,
+          decision.zones,
+        ),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Every selected card must be a distinct offered search result.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const searchedDrawDeck = selectedCards.some((instanceId) =>
+    state.players[playerId].draw.includes(instanceId),
+  );
+  let nextState = selectedCards.reduce(
+    (current, instanceId) =>
+      relocateCard(current, playerId, instanceId, decision.destination),
+    state,
+  );
+  if (searchedDrawDeck && decision.recycleCycleAfterResolution !== true) {
+    const player = nextState.players[playerId];
+    nextState = updatePlayer(nextState, playerId, (current) => ({
+      ...current,
+      draw: shuffle(
+        player.draw,
+        mulberry32(
+          hashSeed(
+            `${state.seed}:search:${state.eventLog.length}:${playerId}`,
+          ),
+        ),
+      ),
+    }));
+  }
+  if (decision.recycleCycleAfterResolution === true) {
+    const player = nextState.players[playerId];
+    nextState = updatePlayer(nextState, playerId, (current) => ({
+      ...current,
+      draw: shuffle(
+        [...player.draw, ...player.cycle],
+        mulberry32(
+          hashSeed(
+            `${state.seed}:recycle:${state.eventLog.length}:${playerId}`,
+          ),
+        ),
+      ),
+      cycle: [],
+    }));
+  }
+  nextState = resolveOldestPendingDecision(nextState);
+  return accepted(nextState, [
+    {
+      type: "pendingDecisionResolved",
+      decisionType: decision.type,
+      playerId,
+    },
+  ]);
+}
+
+export function tryResolveDrawPlayCycleRestDecision(
+  state: GameState,
+  playerId: PlayerId,
+  plays: readonly DrawnCardPlayChoice[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "drawPlayCycleRest") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not draw/play/cycle-rest.`,
+    });
+  }
+  if (decision.playerId !== playerId) {
+    return rejected(state, {
+      code: "wrong-decision-player",
+      message: "Only the player named by the pending decision may resolve it.",
+    });
+  }
+  const playedIds = plays.map((play) => play.cardId);
+  if (
+    plays.length > decision.maxPlays ||
+    new Set(playedIds).size !== playedIds.length ||
+    playedIds.some(
+      (instanceId) =>
+        !decision.drawnCards.includes(instanceId) ||
+        !decision.playableCards.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Selected plays must be distinct playable cards from this draw.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+  if (
+    decision.drawnCards.some(
+      (instanceId) => !state.players[playerId].hand.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Every unresolved drawn card must still be in the player's hand.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  let nextState = state;
+  const events: GameEvent[] = [];
+  for (const play of plays) {
+    if (
+      (decision.allowedDestinations !== undefined &&
+        !decision.allowedDestinations.includes(play.destination)) ||
+      !canPlayDrawnCardWithoutCost(nextState, playerId, play)
+    ) {
+      return rejected(state, {
+        code: "invalid-destination",
+        message: "A selected drawn card cannot be played to that destination.",
+        ...(decision.source === undefined ? {} : { source: decision.source }),
+      });
+    }
+    nextState = playDrawnCardWithoutCost(nextState, playerId, play);
+    events.push({
+      type: "cardPlayed",
+      playerId,
+      cardId: play.cardId,
+      destination: play.destination,
+    });
+  }
+
+  const cycledCards = decision.drawnCards.filter(
+    (instanceId) => !playedIds.includes(instanceId),
+  );
+  nextState = cycleCards(nextState, cycledCards);
+  nextState = resolveOldestPendingDecision(nextState);
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+    playerId,
+  });
+  return accepted(nextState, events);
+}
+
+export function tryResolveCombatLossDecision(
+  state: GameState,
+  selectedCards: readonly string[],
+): CommandResult {
+  const decision = state.pendingDecisions[0];
+  if (decision === undefined) {
+    return rejected(state, {
+      code: "no-pending-decision",
+      message: "There is no pending decision to resolve.",
+    });
+  }
+  if (decision.type !== "combatLosses") {
+    return rejected(state, {
+      code: "wrong-decision-type",
+      message: `The oldest pending decision is ${decision.type}, not combat losses.`,
+    });
+  }
+  const activeLocation =
+    decision.locationType === "path"
+      ? state.activePath
+      : state.activeBattleground;
+  if (
+    activeLocation?.id !== decision.locationId ||
+    decision.candidates.some(
+      (instanceId) => !activeLocation.cards.includes(instanceId),
+    )
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "The combat-loss decision no longer matches the active location.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const validSelections = validCombatLossSelections(state, decision);
+  if (
+    new Set(selectedCards).size !== selectedCards.length ||
+    !validSelections.some((selection) => sameCardSet(selection, selectedCards))
+  ) {
+    return rejected(state, {
+      code: "invalid-decision-choice",
+      message: "Those defenders do not cancel as much attack as the rules require.",
+      ...(decision.source === undefined ? {} : { source: decision.source }),
+    });
+  }
+
+  const survivors = decision.candidates.filter(
+    (instanceId) => !selectedCards.includes(instanceId),
+  );
+  let nextState = cycleCards(
+    removeCombatCards(state, selectedCards, decision.locationType),
+    survivors,
+  );
+  nextState = resolveOldestPendingDecision(nextState);
+  const events: GameEvent[] = selectedCards.map((cardId) => ({
+    type: hasCombatCycleReplacement(state, cardId, decision.locationType)
+      ? "cardCycled"
+      : "cardEliminated",
+    playerId: getCardDefinition(getCard(state, cardId).cardId).owner,
+    cardId,
+  }));
+  events.push({
+    type: "pendingDecisionResolved",
+    decisionType: decision.type,
+  });
+  nextState = appendEvents(nextState, events);
+  if (
+    decision.resumeCombat === true ||
+    decision.activatePathAfterResolution !== undefined
+  ) {
+    nextState =
+      decision.locationType === "path"
+        ? { ...nextState, activePath: null }
+        : advanceBattlegroundQueue(nextState);
+  }
+  const eventCountBeforeVictoryCheck = nextState.eventLog.length;
+  nextState = applyEarlyVictory(nextState);
+  if (nextState.phase === "gameOver") {
+    events.push(
+      ...nextState.eventLog.slice(eventCountBeforeVictoryCheck),
+    );
+    return { ok: true, state: nextState, events };
+  }
+
+  if (decision.activatePathAfterResolution !== undefined) {
+    const pathId = decision.activatePathAfterResolution;
+    const replacedPathId = decision.locationId;
+    const activated = activatePathById(nextState, pathId);
+    if (activated !== null) {
+      const activationEvent: GameEvent = {
+        type: "pathActivated",
+        pathId,
+        replacedPathId,
+      };
+      nextState = appendEvents(activated, [activationEvent]);
+      events.push(activationEvent);
+    }
+  } else if (decision.resumeCombat === true) {
+    nextState = resolveCombat(nextState);
+  }
+  return { ok: true, state: nextState, events };
+}
+
+export function legalCombatLossSelections(
+  state: GameState,
+): readonly (readonly string[])[] {
+  const decision = state.pendingDecisions[0];
+  return decision?.type === "combatLosses"
+    ? validCombatLossSelections(state, decision)
+    : [];
+}
+
 export function nextTurn(state: GameState): GameState {
   return {
     ...state,
@@ -755,18 +1671,36 @@ export function resolveCombat(state: GameState): GameState {
   const battleground = state.activeBattleground;
   if (battleground !== null) {
     nextState = scoreBattleground(nextState, battleground);
+    if (nextState.pendingDecisions.length > state.pendingDecisions.length) {
+      return nextState;
+    }
+    nextState = advanceBattlegroundQueue(nextState);
+    nextState = applyEarlyVictory(nextState);
+    if (nextState.phase === "gameOver") {
+      return nextState;
+    }
+    if (nextState.activeBattleground !== null) {
+      return resolveCombat(nextState);
+    }
   }
 
   const path = nextState.activePath;
   if (path !== null) {
-    nextState = scorePath(nextState, path);
+    const pendingCount = nextState.pendingDecisions.length;
+    nextState = scorePath(nextState, path, { resumeCombat: true });
+    if (nextState.pendingDecisions.length > pendingCount) {
+      return nextState;
+    }
+    nextState = { ...nextState, activePath: null };
+    nextState = applyEarlyVictory(nextState);
+    if (nextState.phase === "gameOver") {
+      return nextState;
+    }
   }
 
   if (nextState.currentPathNumber >= 9) {
-    return addLog(
-      { ...nextState, phase: "gameOver", activeBattleground: null, activePath: null },
-      "Game over after Mount Doom.",
-    );
+    const finalState = scoreUnusedRingTokens(nextState);
+    return finishGame(finalState, finalWinner(finalState), "final-scoring");
   }
 
   nextState = executeDrawStep(nextState);
@@ -776,12 +1710,76 @@ export function resolveCombat(state: GameState): GameState {
     round: nextState.round + 1,
     currentPathNumber: nextState.currentPathNumber + 1,
     activeBattleground: null,
+    additionalActiveBattlegrounds: [],
     activePath: null,
     players: mapPlayers(nextState.players, (player) => ({
       ...player,
       passed: false,
     })),
   });
+}
+
+function applyEarlyVictory(state: GameState): GameState {
+  const gap = state.score.free - state.score.shadow;
+  if (Math.abs(gap) < 10) {
+    return state;
+  }
+  return finishGame(
+    state,
+    gap > 0 ? "free" : "shadow",
+    "early-score-gap",
+  );
+}
+
+function finalWinner(state: GameState): Side {
+  return state.score.free > state.score.shadow ? "free" : "shadow";
+}
+
+function scoreUnusedRingTokens(state: GameState): GameState {
+  const points: Record<Side, number> = { free: 0, shadow: 0 };
+  for (const playerId of turnOrder) {
+    if (!state.players[playerId].usedRingToken) {
+      points[players[playerId].side] += 1;
+    }
+  }
+  return {
+    ...state,
+    score: {
+      free: state.score.free + points.free,
+      shadow: state.score.shadow + points.shadow,
+    },
+    eventLog: [
+      ...state.eventLog,
+      { type: "unusedRingTokensScored", points },
+    ],
+  };
+}
+
+function finishGame(
+  state: GameState,
+  winner: Side,
+  reason: "early-score-gap" | "final-scoring",
+): GameState {
+  if (state.outcome !== null) {
+    return state;
+  }
+  const outcome = {
+    winner,
+    reason,
+    finalScore: state.score,
+  } as const;
+  return addLog(
+    {
+      ...state,
+      phase: "gameOver",
+      outcome,
+      eventLog: [
+        ...state.eventLog,
+        { type: "gameEnded", outcome },
+      ],
+    },
+    `${winnerLabel(winner)} won ${state.score.free}-${state.score.shadow} (${reason}).`,
+  );
 }
 
 export function discardOversizedHands(state: GameState): GameState {
@@ -813,6 +1811,9 @@ export function validateState(state: GameState): readonly string[] {
       ];
     }),
     state.activeBattleground?.cards ?? [],
+    ...state.additionalActiveBattlegrounds.map(
+      (battleground) => battleground.cards,
+    ),
     state.activePath?.cards ?? [],
     ...Object.values(state.attachments),
   ];
@@ -839,6 +1840,11 @@ export function validateState(state: GameState): readonly string[] {
     const battleground = battlegroundById.get(state.activeBattleground.id);
     if (battleground === undefined) {
       errors.push(`Unknown active battleground: ${state.activeBattleground.id}`);
+    }
+  }
+  for (const battleground of state.additionalActiveBattlegrounds) {
+    if (!battlegroundById.has(battleground.id)) {
+      errors.push(`Unknown additional active battleground: ${battleground.id}`);
     }
   }
 
@@ -872,7 +1878,7 @@ export function validateState(state: GameState): readonly string[] {
       if (itemDef.type !== "item") {
         errors.push(`Attached card is not an item: ${itemId}`);
       }
-      if (!isAllowedWielderName(itemDef, wielderDef.title)) {
+      if (!isAllowedWielder(itemDef, wielderDef)) {
         errors.push(`Item ${itemId} cannot be attached to ${wielderId}`);
       }
     }
@@ -915,6 +1921,10 @@ export function canPlayTo(
   return (
     path !== null &&
     cardDef.type === "character" &&
+    !(
+      shadowBattlegroundPathRestrictedCards.has(cardDef.id) &&
+      hasActiveShadowBattleground(state)
+    ) &&
     cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
   );
 }
@@ -939,6 +1949,10 @@ export function canMoveTo(
     return (
       path !== null &&
       cardDef.type === "character" &&
+      !(
+        shadowBattlegroundPathRestrictedCards.has(cardDef.id) &&
+        hasActiveShadowBattleground(state)
+      ) &&
       cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
     );
   }
@@ -958,9 +1972,18 @@ export function canMoveTo(
 }
 
 function startRound(state: GameState): GameState {
-  const side = getSideForRound(state.round);
-  const battlegroundDeck = state.battlegroundDecks[side];
-  const [battlegroundId, ...remainingBattlegrounds] = battlegroundDeck;
+  const startingSide = getSideForRound(state.round);
+  const fallbackSide = oppositeSide(startingSide);
+  const battlegroundSide =
+    state.battlegroundDecks[startingSide].length > 0
+      ? startingSide
+      : state.battlegroundDecks[fallbackSide].length > 0
+        ? fallbackSide
+        : null;
+  const battlegroundId =
+    battlegroundSide === null
+      ? undefined
+      : state.battlegroundDecks[battlegroundSide][0];
   const nextBattleground =
     battlegroundId === undefined
       ? null
@@ -970,6 +1993,13 @@ function startRound(state: GameState): GameState {
           attackTokens: 0,
           defenseTokens: 0,
         } satisfies ActiveBattleground;
+  const nextBattlegroundDecks =
+    battlegroundSide === null
+      ? state.battlegroundDecks
+      : {
+          ...state.battlegroundDecks,
+          [battlegroundSide]: state.battlegroundDecks[battlegroundSide].slice(1),
+        };
 
   const nextPathId =
     state.pathDeck.find((id) => pathById.get(id)?.pathNumber === state.currentPathNumber)
@@ -989,28 +2019,297 @@ function startRound(state: GameState): GameState {
       ? state.pathDeck
       : state.pathDeck.filter((id) => id !== nextPathId);
 
-  return addLog(
-    {
+  const nextState: GameState = {
       ...state,
       phase: "action",
       activePlayer: turnOrder[(state.round - 1) % turnOrder.length] ?? "frodo",
-      battlegroundDecks: {
-        ...state.battlegroundDecks,
-        [side]: remainingBattlegrounds,
-      },
+      battlegroundDecks: nextBattlegroundDecks,
       pathDeck: nextPathDeck,
       activatedPaths:
         nextPathId === null || state.activatedPaths.includes(nextPathId)
           ? state.activatedPaths
           : [...state.activatedPaths, nextPathId],
       activeBattleground: nextBattleground,
+      additionalActiveBattlegrounds: [],
       activePath: nextPath,
       roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
-    },
+      eventLog: [
+        ...state.eventLog,
+        {
+          type: "roundStarted",
+          round: state.round,
+          pathId: nextPathId,
+          battlegroundId: battlegroundId ?? null,
+        },
+      ],
+    };
+
+  const withBattlegroundEffects =
+    battlegroundId === undefined
+      ? nextState
+      : applySimpleLocationActivationEffects(
+          nextState,
+          battlegroundId,
+        );
+  const withLocationEffects =
+    nextPathId === null
+      ? withBattlegroundEffects
+      : applySimpleLocationActivationEffects(
+          withBattlegroundEffects,
+          nextPathId,
+        );
+  return addLog(
+    withLocationEffects,
     `Round ${state.round}: activated ${labelBattleground(nextBattleground)} and ${labelPath(
       nextPath,
     )}.`,
   );
+}
+
+function applySimpleLocationActivationEffects(
+  state: GameState,
+  locationId: string,
+): GameState {
+  let nextState = state;
+  for (const [playerId, count] of simpleLocationDraws[locationId] ?? []) {
+    const handSize = nextState.players[playerId].hand.length;
+    nextState = drawCards(nextState, playerId, count);
+    const drawn = nextState.players[playerId].hand.length - handSize;
+    if (drawn > 0) {
+      nextState = appendEvents(nextState, [
+        { type: "cardsDrawn", playerId, count: drawn },
+      ]);
+    }
+  }
+  for (const effect of locationDrawThenCycle[locationId] ?? []) {
+    const handSize = nextState.players[effect.playerId].hand.length;
+    nextState = drawCards(nextState, effect.playerId, effect.draw);
+    const drawn =
+      nextState.players[effect.playerId].hand.length - handSize;
+    if (drawn > 0) {
+      nextState = appendEvents(nextState, [
+        {
+          type: "cardsDrawn",
+          playerId: effect.playerId,
+          count: drawn,
+        },
+      ]);
+    }
+    nextState = enqueuePendingDecision(nextState, {
+      type: "cycleFromHand",
+      playerId: effect.playerId,
+      minimum: effect.cycle,
+      maximum: effect.cycle,
+      reason: `${locationId} activation`,
+      source: `location:${locationId}`,
+    });
+  }
+  for (const effect of mandatoryLocationCycles[locationId] ?? []) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "cycleFromHand",
+      playerId: effect.playerId,
+      minimum: effect.count,
+      maximum: effect.count,
+      reason: `${locationId} activation`,
+      source: `location:${locationId}`,
+    });
+  }
+  const drawPlayCycle = drawPlayCycleLocations[locationId];
+  if (drawPlayCycle !== undefined) {
+    const handSize =
+      nextState.players[drawPlayCycle.playerId].hand.length;
+    nextState = drawCards(nextState, drawPlayCycle.playerId, 5);
+    const drawnCards =
+      nextState.players[drawPlayCycle.playerId].hand.slice(handSize);
+    const playableCards = drawnCards.filter((instanceId) => {
+      const card = getCardDefinition(getCard(nextState, instanceId).cardId);
+      switch (drawPlayCycle.playable) {
+        case "army":
+          return card.type === "army";
+        case "character":
+          return card.type === "character";
+        case "nazgul":
+          return (
+            card.type === "character" &&
+            normalizeName(card.title).includes("nazgul")
+          );
+        case "rohan-unit":
+          return (
+            card.faction === "rohan" &&
+            (card.type === "army" || card.type === "character")
+          );
+      }
+    });
+    if (drawnCards.length > 0) {
+      nextState = appendEvents(nextState, [
+        {
+          type: "cardsDrawn",
+          playerId: drawPlayCycle.playerId,
+          count: drawnCards.length,
+        },
+      ]);
+    }
+    nextState = enqueuePendingDecision(nextState, {
+      type: "drawPlayCycleRest",
+      playerId: drawPlayCycle.playerId,
+      drawnCards,
+      playableCards,
+      maxPlays: 1,
+      ...(drawPlayCycle.allowedDestinations === undefined
+        ? {}
+        : {
+            allowedDestinations:
+              drawPlayCycle.allowedDestinations,
+          }),
+      source: `location:${locationId}`,
+    });
+  }
+  if (locationId === "morgai" && nextState.activePath?.id === locationId) {
+    nextState = addActivePathAttackTokens(nextState, 1);
+  }
+  for (const forsake of mandatoryLocationForsakes[locationId] ?? []) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "forsake",
+      playerId: forsake.playerId,
+      minimum: 1,
+      reason: `${locationId} activation`,
+      ...(forsake.drawAfterResolution === undefined
+        ? {}
+        : { drawAfterResolution: forsake.drawAfterResolution }),
+      source: `location:${locationId}`,
+    });
+  }
+  const optionalForsake = optionalLocationForsakes[locationId];
+  if (optionalForsake !== undefined) {
+    nextState = enqueuePendingDecision(nextState, {
+      type: "forsake",
+      playerId: optionalForsake.playerId,
+      minimum: 0,
+      maximum: 1,
+      reason: `${locationId} optional activation effect`,
+      ...(optionalForsake.drawAfterResolution === undefined
+        ? {}
+        : { drawAfterResolution: optionalForsake.drawAfterResolution }),
+      ...(optionalForsake.addPathAttackAfterResolution === undefined
+        ? {}
+        : {
+            addPathAttackAfterResolution:
+              optionalForsake.addPathAttackAfterResolution,
+          }),
+      source: `location:${locationId}`,
+    });
+  }
+  if (locationId === "orthanc") {
+    const sarumanChoices = [
+      ...nextState.players.saruman.draw,
+      ...nextState.players.saruman.cycle,
+    ].filter(
+      (instanceId) =>
+        normalizeName(
+          getCardDefinition(getCard(nextState, instanceId).cardId).title,
+        ) === "saruman",
+    );
+    nextState = enqueuePendingDecision(nextState, {
+      type: "search",
+      playerId: "saruman",
+      zones: ["draw", "cycle"],
+      choices: sarumanChoices,
+      minimum: 0,
+      maximum: Math.min(1, sarumanChoices.length),
+      destination: "hand",
+      recycleCycleAfterResolution: true,
+      source: "location:orthanc",
+    });
+  }
+  const namedBattleground = namedBattlegroundActivations[locationId];
+  if (namedBattleground !== undefined) {
+    nextState = applyNamedBattlegroundActivation(
+      nextState,
+      locationId,
+      namedBattleground,
+    );
+  }
+  return nextState;
+}
+
+function applyNamedBattlegroundActivation(
+  state: GameState,
+  sourceId: string,
+  targetId: string,
+): GameState {
+  if (activeBattlegroundIds(state).includes(targetId)) {
+    return state;
+  }
+  const fromDeck = tryActivateBattlegroundFromDeck(state, targetId);
+  if (fromDeck.ok) {
+    return fromDeck.state;
+  }
+  const sourceSide = battlegroundById.get(sourceId)?.side;
+  if (sourceSide === undefined) {
+    return state;
+  }
+  const fromScoringArea = tryReactivateBattleground(
+    state,
+    targetId,
+    sourceSide,
+  );
+  return fromScoringArea.ok ? fromScoringArea.state : state;
+}
+
+function createActiveBattleground(
+  battlegroundId: string,
+): ActiveBattleground {
+  return {
+    id: battlegroundId,
+    cards: [],
+    attackTokens: 0,
+    defenseTokens: 0,
+    ignorePrintedDefense: false,
+  };
+}
+
+function appendActiveBattleground(
+  state: GameState,
+  battleground: ActiveBattleground,
+): GameState {
+  if (state.activeBattleground === null) {
+    return { ...state, activeBattleground: battleground };
+  }
+  return {
+    ...state,
+    additionalActiveBattlegrounds: [
+      ...state.additionalActiveBattlegrounds,
+      battleground,
+    ],
+  };
+}
+
+function activeBattlegroundIds(state: GameState): readonly string[] {
+  return [
+    ...(state.activeBattleground === null
+      ? []
+      : [state.activeBattleground.id]),
+    ...state.additionalActiveBattlegrounds.map(
+      (battleground) => battleground.id,
+    ),
+  ];
+}
+
+function hasActiveShadowBattleground(state: GameState): boolean {
+  return activeBattlegroundIds(state).some(
+    (battlegroundId) =>
+      battlegroundById.get(battlegroundId)?.side === "shadow",
+  );
+}
+
+function advanceBattlegroundQueue(state: GameState): GameState {
+  const [nextBattleground, ...remainingBattlegrounds] =
+    state.additionalActiveBattlegrounds;
+  return {
+    ...state,
+    activeBattleground: nextBattleground ?? null,
+    additionalActiveBattlegrounds: remainingBattlegrounds,
+  };
 }
 
 function scoreBattleground(
@@ -1028,42 +2327,75 @@ function scoreBattleground(
   const defendingCards = battleground.cards.filter(
     (instanceId) => !attackingCards.includes(instanceId),
   );
-  const attack = attackingCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.battlegroundAttack + card.leadershipAttack, 0);
+  const attack = battleground.attackTokens + attackingCards
+    .reduce(
+      (sum, instanceId) =>
+        sum + combatIconsFor(state, instanceId, "battleground-attack"),
+      0,
+    );
+  const printedDefense = battleground.ignorePrintedDefense === true
+    ? 0
+    : definition.defenseIcons;
   const defense =
-    definition.defenseIcons +
+    printedDefense +
     battleground.defenseTokens +
     defendingCards
-      .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-      .reduce((sum, card) => sum + card.battlegroundDefense + card.leadershipDefense, 0);
+      .reduce(
+        (sum, instanceId) =>
+          sum + combatIconsFor(state, instanceId, "battleground-defense"),
+        0,
+      );
   const winner: Side = attack > defense ? oppositeSide(definition.side) : definition.side;
-  const locationDefense = definition.defenseIcons + battleground.defenseTokens;
+  const locationDefense = printedDefense + battleground.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
-  const { eliminated: defenderLosses, cycled: defenderSurvivors } =
-    assignDefenderLosses(state, defendingCards, remainingAttack, "battleground");
+  const decision = {
+    type: "combatLosses",
+    side: definition.side,
+    locationType: "battleground",
+    locationId: definition.id,
+    attackToCancel: remainingAttack,
+    candidates: defendingCards,
+    resumeCombat: true,
+    source: "combat:battleground",
+  } satisfies Extract<PendingDecision, { readonly type: "combatLosses" }>;
+  const validSelections = validCombatLossSelections(state, decision);
+  const scoredState: GameState = {
+    ...state,
+    score: {
+      ...state.score,
+      [winner]: state.score[winner] + definition.victoryPoints,
+    },
+    scoringAreas: {
+      ...state.scoringAreas,
+      battlegrounds: {
+        ...state.scoringAreas.battlegrounds,
+        [winner]: uniqueAppend(
+          state.scoringAreas.battlegrounds[winner],
+          definition.id,
+        ),
+      },
+    },
+  };
+  if (validSelections.length > 1) {
+    return addLog(
+      enqueuePendingDecision(
+        removeCombatCards(scoredState, attackingCards, "battleground"),
+        decision,
+      ),
+      `${definition.title}: ${winnerLabel(winner)} scored ${definition.victoryPoints} VP; awaiting defender losses.`,
+    );
+  }
+  const defenderLosses = validSelections[0] ?? [];
+  const defenderSurvivors = defendingCards.filter(
+    (instanceId) => !defenderLosses.includes(instanceId),
+  );
 
   return addLog(
     cycleCards(
-      eliminateCards(
-        {
-          ...state,
-          score: {
-            ...state.score,
-            [winner]: state.score[winner] + definition.victoryPoints,
-          },
-          scoringAreas: {
-            ...state.scoringAreas,
-            battlegrounds: {
-              ...state.scoringAreas.battlegrounds,
-              [winner]: uniqueAppend(
-                state.scoringAreas.battlegrounds[winner],
-                definition.id,
-              ),
-            },
-          },
-        },
+      removeCombatCards(
+        scoredState,
         [...attackingCards, ...defenderLosses],
+        "battleground",
       ),
       defenderSurvivors,
     ),
@@ -1071,7 +2403,14 @@ function scoreBattleground(
   );
 }
 
-function scorePath(state: GameState, path: ActivePath): GameState {
+function scorePath(
+  state: GameState,
+  path: ActivePath,
+  continuation: {
+    readonly resumeCombat?: boolean;
+    readonly activatePathAfterResolution?: string;
+  } = {},
+): GameState {
   const definition = pathById.get(path.id);
   if (definition === undefined) {
     return state;
@@ -1079,45 +2418,73 @@ function scorePath(state: GameState, path: ActivePath): GameState {
   const shadowCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "shadow");
   const freeCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "free");
   const attack = path.attackTokens + shadowCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
+    .reduce(
+      (sum, instanceId) => sum + combatIconsFor(state, instanceId, "path"),
+      0,
+    );
   const locationDefense = definition.defenseIcons + path.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
   const freeDefense = freeCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
+    .reduce(
+      (sum, instanceId) => sum + combatIconsFor(state, instanceId, "path"),
+      0,
+    );
   const uncanceledAttack = Math.max(0, remainingAttack - freeDefense);
   const winner: Side = uncanceledAttack === 0 ? "free" : "shadow";
-  const { eliminated: defenderLosses, cycled: defenderSurvivors } =
-    assignDefenderLosses(state, freeCards, remainingAttack, "path");
   const points = winner === "free" ? definition.victoryPoints : uncanceledAttack;
   const corruptionAdded = winner === "shadow" ? uncanceledAttack : 0;
+  const decision = {
+    type: "combatLosses",
+    side: "free",
+    locationType: "path",
+    locationId: definition.id,
+    attackToCancel: remainingAttack,
+    candidates: freeCards,
+    ...continuation,
+    source: "combat:path",
+  } satisfies Extract<PendingDecision, { readonly type: "combatLosses" }>;
+  const validSelections = validCombatLossSelections(state, decision);
+  const scoredState: GameState = {
+    ...state,
+    corruption: {
+      tokens: state.corruption.tokens + corruptionAdded,
+    },
+    score: {
+      ...state.score,
+      [winner]: state.score[winner] + points,
+    },
+    scoringAreas: {
+      ...state.scoringAreas,
+      paths: {
+        ...state.scoringAreas.paths,
+        [winner]: appendScoredPath(state.scoringAreas.paths[winner], {
+          id: definition.id,
+          points,
+          facedown: winner === "shadow",
+        }),
+      },
+    },
+  };
+  if (validSelections.length > 1) {
+    return addLog(
+      enqueuePendingDecision(
+        removeCombatCards(scoredState, shadowCards, "path"),
+        decision,
+      ),
+      `${definition.title}: ${winnerLabel(winner)} scored ${points} VP; awaiting defender losses.`,
+    );
+  }
+  const defenderLosses = validSelections[0] ?? [];
+  const defenderSurvivors = freeCards.filter(
+    (instanceId) => !defenderLosses.includes(instanceId),
+  );
 
   return addLog(
     cycleCards(
-      eliminateCards(
-        {
-          ...state,
-          corruption: {
-            tokens: state.corruption.tokens + corruptionAdded,
-          },
-          score: {
-            ...state.score,
-            [winner]: state.score[winner] + points,
-          },
-          scoringAreas: {
-            ...state.scoringAreas,
-            paths: {
-              ...state.scoringAreas.paths,
-              [winner]: appendScoredPath(state.scoringAreas.paths[winner], {
-                id: definition.id,
-                points,
-                facedown: winner === "shadow",
-              }),
-            },
-          },
-        },
+      removeCombatCards(
+        scoredState,
         [...shadowCards, ...defenderLosses],
+        "path",
       ),
       defenderSurvivors,
     ),
@@ -1127,9 +2494,89 @@ function scorePath(state: GameState, path: ActivePath): GameState {
 
 function executeDrawStep(state: GameState): GameState {
   return turnOrder.reduce(
-    (nextState, playerId) => drawCards(nextState, playerId, players[playerId].drawCount),
+    (nextState, playerId) =>
+      drawCards(nextState, playerId, drawCountForPlayer(nextState, playerId)),
     state,
   );
+}
+
+function applyWhenPlayedDrawEffects(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  const recipients: readonly PlayerId[] =
+    text.includes("when played each sp draws 1 card")
+      ? ["witchKing", "saruman"]
+      : text.includes("when played draw 1 card")
+        ? [playerId]
+        : [];
+  return recipients.reduce((nextState, recipient) => {
+    const handSize = nextState.players[recipient].hand.length;
+    const drawnState = drawCards(nextState, recipient, 1);
+    const drawn = drawnState.players[recipient].hand.length - handSize;
+    return drawn > 0
+      ? appendEvents(drawnState, [
+          { type: "cardsDrawn", playerId: recipient, count: drawn },
+        ])
+      : drawnState;
+  }, state);
+}
+
+function applyPlayedOrMovedForsakeEffects(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: PlayDestination,
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  if (
+    (destination === "path" || destination === "battleground") &&
+    text.includes(
+      "when played or moved to a path or battleground each fp player must forsake 1 card",
+    )
+  ) {
+    return (["frodo", "aragorn"] as const).reduce(
+      (nextState, forsakingPlayer) =>
+        enqueuePendingDecision(nextState, {
+          type: "forsake",
+          playerId: forsakingPlayer,
+          minimum: 1,
+          reason: `${getCardDefinition(getCard(state, instanceId).cardId).title} played or moved`,
+          source: `card:${getCard(state, instanceId).cardId}`,
+        }),
+      state,
+    );
+  }
+  if (
+    destination === "path" &&
+    text.includes(
+      "when played or moved to a path you must forsake 1 card",
+    )
+  ) {
+    return enqueuePendingDecision(state, {
+      type: "forsake",
+      playerId,
+      minimum: 1,
+      reason: `${getCardDefinition(getCard(state, instanceId).cardId).title} played or moved`,
+      source: `card:${getCard(state, instanceId).cardId}`,
+    });
+  }
+  return state;
+}
+
+export function drawCountForPlayer(
+  state: GameState,
+  playerId: PlayerId,
+): number {
+  const reserveBonus = state.players[playerId].reserve.filter((instanceId) => {
+    const text = normalizeName(
+      getCardDefinition(getCard(state, instanceId).cardId).text,
+    );
+    return text.includes("while in reserve draw 1");
+  }).length;
+  return players[playerId].drawCount + reserveBonus;
 }
 
 function drawCards(state: GameState, playerId: PlayerId, count: number): GameState {
@@ -1171,14 +2618,42 @@ function forsakeFromTopOfDeck(state: GameState, playerId: PlayerId): GameState {
   if (forsaken === undefined) {
     return state;
   }
-  return updatePlayer(state, playerId, () => ({
+  const withoutTopCard = updatePlayer(state, playerId, () => ({
     ...replenished,
     draw: remainingDraw,
-    eliminated: [...replenished.eliminated, forsaken],
   }));
+  const definition = getCardDefinition(getCard(state, forsaken).cardId);
+  const normalizedText = normalizeName(definition.text);
+  const cyclesInstead =
+    normalizedText.includes("forsaken from top of the draw deck cycle instead") ||
+    normalizedText.includes("eliminated or forsaken cycle instead") ||
+    normalizedText.includes("eliminated or being forsaken cycle instead");
+  return cyclesInstead
+    ? cycleCards(withoutTopCard, [forsaken])
+    : eliminateCards(withoutTopCard, [forsaken]);
 }
 
 function eliminateCards(state: GameState, instanceIds: readonly string[]): GameState {
+  return instanceIds.reduce((nextState, instanceId) => {
+    if (!hasGeneralEliminationCycleReplacement(nextState, instanceId)) {
+      return eliminateCardsWithoutReplacement(nextState, [instanceId]);
+    }
+    const text = normalizedCardText(nextState, instanceId);
+    if (text.includes("any wielded items are eliminated")) {
+      const attachedItems = nextState.attachments[instanceId] ?? [];
+      return cycleCards(
+        eliminateCardsWithoutReplacement(nextState, attachedItems),
+        [instanceId],
+      );
+    }
+    return cycleCards(nextState, [instanceId]);
+  }, state);
+}
+
+function eliminateCardsWithoutReplacement(
+  state: GameState,
+  instanceIds: readonly string[],
+): GameState {
   const cardsToEliminate = expandWithAttachedItems(state, instanceIds);
   return cardsToEliminate.reduce((nextState, instanceId) => {
     const owner = findOwner(nextState, instanceId);
@@ -1203,6 +2678,37 @@ function eliminateCards(state: GameState, instanceIds: readonly string[]): GameS
   }, removeAttachmentLinks(state, cardsToEliminate));
 }
 
+function forsakeChosenCard(
+  state: GameState,
+  instanceId: string,
+  source: "hand" | "reserve",
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  const reserveForsakeReplacement =
+    source === "reserve" &&
+    text.includes("if in reserve and when forsaken cycle instead");
+  return reserveForsakeReplacement
+    ? cycleCards(state, [instanceId])
+    : eliminateCards(state, [instanceId]);
+}
+
+function hasGeneralEliminationCycleReplacement(
+  state: GameState,
+  instanceId: string,
+): boolean {
+  const text = normalizedCardText(state, instanceId);
+  return (
+    text.includes("eliminated or being forsaken cycle instead") ||
+    text.includes("eliminated or forsaken cycle instead")
+  );
+}
+
+function normalizedCardText(state: GameState, instanceId: string): string {
+  return normalizeName(
+    getCardDefinition(getCard(state, instanceId).cardId).text,
+  );
+}
+
 function cycleCards(state: GameState, instanceIds: readonly string[]): GameState {
   const cardsToCycle = expandWithAttachedItems(state, instanceIds);
   return cardsToCycle.reduce((nextState, instanceId) => {
@@ -1224,6 +2730,57 @@ function cycleCards(state: GameState, instanceIds: readonly string[]): GameState
       ),
     );
   }, removeAttachmentLinks(state, cardsToCycle));
+}
+
+function removeCombatCards(
+  state: GameState,
+  instanceIds: readonly string[],
+  combatType: "battleground" | "path",
+): GameState {
+  return instanceIds.reduce((nextState, instanceId) => {
+    if (!hasCombatCycleReplacement(nextState, instanceId, combatType)) {
+      return eliminateCards(nextState, [instanceId]);
+    }
+    const ownText = normalizeName(
+      getCardDefinition(getCard(nextState, instanceId).cardId).text,
+    );
+    const attachmentProvidesReplacement = (
+      nextState.attachments[instanceId] ?? []
+    ).some((itemId) =>
+      hasCombatCycleReplacement(nextState, itemId, combatType)
+    );
+    if (
+      ownText.includes("any wielded items are eliminated") &&
+      !attachmentProvidesReplacement
+    ) {
+      const attachedItems = nextState.attachments[instanceId] ?? [];
+      return cycleCards(
+        eliminateCards(nextState, attachedItems),
+        [instanceId],
+      );
+    }
+    return cycleCards(nextState, [instanceId]);
+  }, state);
+}
+
+function hasCombatCycleReplacement(
+  state: GameState,
+  instanceId: string,
+  combatType: "battleground" | "path",
+): boolean {
+  return expandWithAttachedItems(state, [instanceId]).some((cardId) => {
+    const text = normalizeName(
+      getCardDefinition(getCard(state, cardId).cardId).text,
+    );
+    return (
+      ((text.includes("eliminated in combat") ||
+        (combatType === "path" &&
+          text.includes("eliminated in path combat"))) &&
+        text.includes("cycle") &&
+        text.includes("instead")) ||
+      text.includes("eliminated or being forsaken cycle instead")
+    );
+  });
 }
 
 function expandWithAttachedItems(
@@ -1283,6 +2840,12 @@ function removeFromSharedPlayZones(state: GameState, instanceId: string): GameSt
             ...state.activeBattleground,
             cards: removeOne(state.activeBattleground.cards, instanceId),
           },
+    additionalActiveBattlegrounds: state.additionalActiveBattlegrounds.map(
+      (battleground) => ({
+        ...battleground,
+        cards: removeOne(battleground.cards, instanceId),
+      }),
+    ),
     activePath:
       state.activePath === null
         ? null
@@ -1335,15 +2898,44 @@ function isValidWielder(
     return false;
   }
   const wielderDef = getCardDefinition(wielder.cardId);
-  return wielderDef.type === "character" && isAllowedWielderName(itemDef, wielderDef.title);
+  return (
+    wielderDef.type === "character" &&
+    isAllowedWielder(itemDef, wielderDef) &&
+    !violatesWeaponRestriction(state, itemDef, wielderId)
+  );
 }
 
-function isAllowedWielderName(itemDef: CardDefinition, wielderTitle: string): boolean {
+function violatesWeaponRestriction(
+  state: GameState,
+  itemDef: CardDefinition,
+  wielderId: string,
+): boolean {
+  const attachedDefinitions = (state.attachments[wielderId] ?? []).map(
+    (itemId) => getCardDefinition(getCard(state, itemId).cardId),
+  );
+  const bowAlreadyAttached = attachedDefinitions.some(
+    (definition) => definition.id === bowOfGaladhrimId,
+  );
+  const weaponAlreadyAttached = attachedDefinitions.some((definition) =>
+    weaponCardIds.has(definition.id)
+  );
+  return (
+    (bowAlreadyAttached && weaponCardIds.has(itemDef.id)) ||
+    (itemDef.id === bowOfGaladhrimId && weaponAlreadyAttached)
+  );
+}
+
+function isAllowedWielder(
+  itemDef: CardDefinition,
+  wielderDef: CardDefinition,
+): boolean {
   return itemDef.allowedWielders.some((allowed) => {
     const normalizedAllowed = normalizeName(allowed);
-    const normalizedTitle = normalizeName(wielderTitle);
+    const normalizedTitle = normalizeName(wielderDef.title);
+    const normalizedFaction = normalizeName(wielderDef.faction);
     return (
       normalizedAllowed === normalizedTitle ||
+      normalizedAllowed === normalizedFaction ||
       normalizedTitle.includes(normalizedAllowed) ||
       normalizedAllowed.includes(normalizedTitle)
     );
@@ -1351,15 +2943,48 @@ function isAllowedWielderName(itemDef: CardDefinition, wielderTitle: string): bo
 }
 
 function isInPlay(state: GameState, instanceId: string): boolean {
+  return isInPlayWithoutAttachmentCycle(state, instanceId, new Set());
+}
+
+function isInPlayWithoutAttachmentCycle(
+  state: GameState,
+  instanceId: string,
+  visited: ReadonlySet<string>,
+): boolean {
+  if (visited.has(instanceId)) {
+    return false;
+  }
+  const nextVisited = new Set(visited);
+  nextVisited.add(instanceId);
   return (
     Object.values(state.players).some((player) => player.reserve.includes(instanceId)) ||
     (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
-    (state.activePath?.cards.includes(instanceId) ?? false)
+    state.additionalActiveBattlegrounds.some((battleground) =>
+      battleground.cards.includes(instanceId)
+    ) ||
+    (state.activePath?.cards.includes(instanceId) ?? false) ||
+    Object.entries(state.attachments).some(
+      ([wielderId, itemIds]) =>
+        itemIds.includes(instanceId) &&
+        isInPlayWithoutAttachmentCycle(state, wielderId, nextVisited),
+    )
   );
 }
 
-function carryoverLimit(_state: GameState, _playerId: PlayerId): number {
-  return baseCarryoverLimit;
+function carryoverLimit(state: GameState, playerId: PlayerId): number {
+  const modifiers = Object.keys(state.cards).filter((instanceId) => {
+    if (findOwner(state, instanceId) !== playerId || !isInPlay(state, instanceId)) {
+      return false;
+    }
+    const text = normalizeName(
+      getCardDefinition(getCard(state, instanceId).cardId).text,
+    );
+    return (
+      text.includes("increase your carryover limit by 1") ||
+      text.includes("increase your col by 1")
+    );
+  }).length;
+  return baseCarryoverLimit + modifiers;
 }
 
 function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
@@ -1368,6 +2993,12 @@ function enemyPlayers(playerId: PlayerId): readonly PlayerId[] {
 }
 
 function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation | null {
+  if (state.pendingDecisions.length > 0) {
+    return {
+      code: "pending-decision-required",
+      message: "Resolve the oldest pending decision before taking another action.",
+    };
+  }
   if (state.phase !== "action") {
     return {
       code: "wrong-phase",
@@ -1383,7 +3014,253 @@ function validateActionTurn(state: GameState, playerId: PlayerId): RuleViolation
   return null;
 }
 
+function isCardInSearchZones(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  zones: readonly Zone[],
+): boolean {
+  if (findOwner(state, instanceId) !== playerId) {
+    return false;
+  }
+  const player = state.players[playerId];
+  return zones.some((zone) => {
+    switch (zone) {
+      case "draw":
+      case "hand":
+      case "cycle":
+      case "eliminated":
+      case "reserve":
+        return player[zone].includes(instanceId);
+      case "battleground":
+        return (
+          (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
+          state.additionalActiveBattlegrounds.some((battleground) =>
+            battleground.cards.includes(instanceId)
+          )
+        );
+      case "path":
+        return state.activePath?.cards.includes(instanceId) ?? false;
+    }
+  });
+}
+
+function canPlayDrawnCardWithoutCost(
+  state: GameState,
+  playerId: PlayerId,
+  play: DrawnCardPlayChoice,
+): boolean {
+  if (!canPlayTo(state, playerId, play.cardId, play.destination)) {
+    return false;
+  }
+  const card = getCardDefinition(getCard(state, play.cardId).cardId);
+  return (
+    (card.type !== "character" && card.type !== "item") ||
+    !state.roundMemory.playedCharacterOrItemCards.includes(card.id)
+  );
+}
+
+function validCombatLossSelections(
+  state: GameState,
+  decision: Extract<PendingDecision, { readonly type: "combatLosses" }>,
+): readonly (readonly string[])[] {
+  if (decision.attackToCancel <= 0) {
+    return [[]];
+  }
+  const candidates = [...decision.candidates];
+  const totalDefense = candidates.reduce(
+    (sum, instanceId) =>
+      sum + defenseIconsFor(state, instanceId, decision.locationType),
+    0,
+  );
+  if (totalDefense <= decision.attackToCancel) {
+    return [candidates];
+  }
+
+  const selections: string[][] = [];
+  for (let mask = 1; mask < 2 ** candidates.length; mask += 1) {
+    const selection = candidates.filter(
+      (_instanceId, index) => (mask & (1 << index)) !== 0,
+    );
+    const defense = selection.reduce(
+      (sum, instanceId) =>
+        sum + defenseIconsFor(state, instanceId, decision.locationType),
+      0,
+    );
+    if (defense < decision.attackToCancel) {
+      continue;
+    }
+    const hasUnnecessaryDefender = selection.some((removed) => {
+      return (
+        defense -
+          defenseIconsFor(state, removed, decision.locationType) >=
+        decision.attackToCancel
+      );
+    });
+    if (!hasUnnecessaryDefender) {
+      selections.push(selection);
+    }
+  }
+  return selections;
+}
+
+function sameCardSet(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((instanceId) => right.includes(instanceId))
+  );
+}
+
+function playDrawnCardWithoutCost(
+  state: GameState,
+  playerId: PlayerId,
+  play: DrawnCardPlayChoice,
+): GameState {
+  const card = getCardDefinition(getCard(state, play.cardId).cardId);
+  let nextState = updatePlayer(state, playerId, (player) => ({
+    ...player,
+    hand: removeOne(player.hand, play.cardId),
+    reserve:
+      play.destination === "reserve"
+        ? [...player.reserve, play.cardId]
+        : player.reserve,
+  }));
+
+  if (play.destination === "reserve") {
+    nextState = {
+      ...nextState,
+      roundMemory: {
+        ...nextState.roundMemory,
+        playedToReserve: uniqueAppend(
+          nextState.roundMemory.playedToReserve,
+          play.cardId,
+        ),
+      },
+    };
+  } else if (play.destination === "battleground") {
+    nextState = {
+      ...nextState,
+      activeBattleground:
+        nextState.activeBattleground === null
+          ? null
+          : {
+              ...nextState.activeBattleground,
+              cards: [...nextState.activeBattleground.cards, play.cardId],
+            },
+    };
+  } else {
+    nextState = {
+      ...nextState,
+      activePath:
+        nextState.activePath === null
+          ? null
+          : {
+              ...nextState.activePath,
+              cards: [...nextState.activePath.cards, play.cardId],
+            },
+    };
+  }
+
+  if (card.type === "character" || card.type === "item") {
+    nextState = rememberCharacterOrItemPlayed(nextState, card.id);
+  }
+  return addLog(
+    applyPlayedOrMovedForsakeEffects(
+      applyWhenPlayedDrawEffects(nextState, playerId, play.cardId),
+      playerId,
+      play.cardId,
+      play.destination,
+    ),
+    `${players[playerId].name} played ${card.title} to ${play.destination} from a card-effect draw.`,
+  );
+}
+
+export function legalForsakeChoices(
+  state: GameState,
+  playerId: PlayerId,
+): readonly ForsakeChoice[] {
+  const player = state.players[playerId];
+  return [
+    ...player.hand.map((cardId) => ({
+      source: "hand" as const,
+      cardId,
+    })),
+    ...player.reserve.map((cardId) => ({
+      source: "reserve" as const,
+      cardId,
+    })),
+    ...controlledReserveItems(state, playerId).map((cardId) => ({
+      source: "reserve" as const,
+      cardId,
+    })),
+    ...(player.draw.length + player.cycle.length > 0
+      ? [{ source: "draw" as const }]
+      : []),
+  ];
+}
+
+export function availableForsakeCount(
+  state: GameState,
+  playerId: PlayerId,
+): number {
+  const player = state.players[playerId];
+  return (
+    player.hand.length +
+    player.reserve.length +
+    controlledReserveItems(state, playerId).length +
+    player.draw.length +
+    player.cycle.length
+  );
+}
+
+function controlledReserveItems(
+  state: GameState,
+  playerId: PlayerId,
+): readonly string[] {
+  return state.players[playerId].reserve.flatMap(
+    (wielderId) => state.attachments[wielderId] ?? [],
+  );
+}
+
+function relocateCard(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: "hand" | "cycle" | "eliminated",
+): GameState {
+  const withoutAttachment = stripEmptyAttachmentLists(
+    removeAttachmentLinks(state, [instanceId]),
+  );
+  const withoutSharedZone = removeFromSharedPlayZones(
+    withoutAttachment,
+    instanceId,
+  );
+  return updatePlayer(withoutSharedZone, playerId, (player) => ({
+    ...player,
+    draw: removeOne(player.draw, instanceId),
+    hand:
+      destination === "hand"
+        ? uniqueAppend(removeOne(player.hand, instanceId), instanceId)
+        : removeOne(player.hand, instanceId),
+    cycle:
+      destination === "cycle"
+        ? uniqueAppend(removeOne(player.cycle, instanceId), instanceId)
+        : removeOne(player.cycle, instanceId),
+    reserve: removeOne(player.reserve, instanceId),
+    eliminated:
+      destination === "eliminated"
+        ? uniqueAppend(removeOne(player.eliminated, instanceId), instanceId)
+        : removeOne(player.eliminated, instanceId),
+  }));
+}
+
 function accepted(state: GameState, events: readonly GameEvent[]): CommandResult {
+  if (events.length === 0) {
+    throw new Error("Accepted commands must emit at least one event.");
+  }
   return { ok: true, state: appendEvents(state, events), events };
 }
 
@@ -1399,39 +3276,12 @@ function appendEvents(state: GameState, events: readonly GameEvent[]): GameState
 }
 
 function normalizeName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function assignDefenderLosses(
-  state: GameState,
-  defenderCards: readonly string[],
-  attackToCancel: number,
-  combatType: "battleground" | "path",
-): { eliminated: readonly string[]; cycled: readonly string[] } {
-  if (attackToCancel <= 0) {
-    return { eliminated: [], cycled: defenderCards };
-  }
-
-  let canceled = 0;
-  const eliminated: string[] = [];
-  const sorted = [...defenderCards].sort((left, right) => {
-    const leftDefense = defenseIconsFor(state, left, combatType);
-    const rightDefense = defenseIconsFor(state, right, combatType);
-    return leftDefense - rightDefense;
-  });
-
-  for (const instanceId of sorted) {
-    if (canceled >= attackToCancel) {
-      break;
-    }
-    eliminated.push(instanceId);
-    canceled += defenseIconsFor(state, instanceId, combatType);
-  }
-
-  return {
-    eliminated,
-    cycled: defenderCards.filter((instanceId) => !eliminated.includes(instanceId)),
-  };
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function defenseIconsFor(
@@ -1439,11 +3289,32 @@ function defenseIconsFor(
   instanceId: string,
   combatType: "battleground" | "path",
 ): number {
-  const definition = getCardDefinition(getCard(state, instanceId).cardId);
-  if (combatType === "path") {
-    return definition.pathIcons;
-  }
-  return definition.battlegroundDefense + definition.leadershipDefense;
+  return combatIconsFor(
+    state,
+    instanceId,
+    combatType === "path" ? "path" : "battleground-defense",
+  );
+}
+
+function combatIconsFor(
+  state: GameState,
+  instanceId: string,
+  combatType: "path" | "battleground-attack" | "battleground-defense",
+): number {
+  return expandWithAttachedItems(state, [instanceId]).reduce(
+    (sum, cardId) => {
+      const definition = getCardDefinition(getCard(state, cardId).cardId);
+      switch (combatType) {
+        case "path":
+          return sum + definition.pathIcons;
+        case "battleground-attack":
+          return sum + definition.battlegroundAttack + definition.leadershipAttack;
+        case "battleground-defense":
+          return sum + definition.battlegroundDefense + definition.leadershipDefense;
+      }
+    },
+    0,
+  );
 }
 
 function cardSide(state: GameState, instanceId: string): Side {

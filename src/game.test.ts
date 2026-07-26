@@ -17,6 +17,7 @@ import {
   selectPlayer,
   tryMoveFromReserve,
   tryPass,
+  tryPlayCard,
   tryWinnow,
   tryForsake,
   usePlayerRingToken,
@@ -52,7 +53,7 @@ describe("game engine", () => {
 
     expect(validateState(state)).toEqual([]);
     for (const player of Object.values(state.players)) {
-      expect(player.hand).toHaveLength(5);
+      expect(player.hand.length).toBeGreaterThanOrEqual(5);
       expect(player.cycle).toHaveLength(2);
     }
   });
@@ -228,6 +229,7 @@ describe("game engine", () => {
     const state = {
       ...createGame("pass-legality"),
       activePlayer: "frodo" as const,
+      pendingDecisions: [],
     };
 
     const result = tryPass(state);
@@ -246,6 +248,7 @@ describe("game engine", () => {
         reserve: [card],
       }),
       activePlayer: playerId,
+      pendingDecisions: [],
       roundMemory: { playedToReserve: [card], playedCharacterOrItemCards: [] },
     };
 
@@ -270,7 +273,212 @@ describe("game engine", () => {
     }
   });
 
-  it("winnows by eliminating two hand cards and drawing one", () => {
+  it("blocks Mouth of Sauron and Lidless Eye from paths while a Shadow battleground is active", () => {
+    const playerId: PlayerId = "witchKing";
+    const mouth = "witchKing-mouth-of-sauron-154-1";
+    const eye = "witchKing-the-lidless-eye-156-1";
+    const base = setPlayerZones(createGame("shadow-path-restrictions"), playerId, {
+      hand: [mouth, eye],
+      reserve: [],
+    });
+    const shadowBattleground = {
+      ...base,
+      activeBattleground: {
+        id: "moria",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      additionalActiveBattlegrounds: [],
+      activePath: {
+        id: "orodruin",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    expect(canPlayTo(shadowBattleground, playerId, mouth, "path")).toBe(false);
+    expect(canPlayTo(shadowBattleground, playerId, eye, "path")).toBe(false);
+
+    const freeBattleground = {
+      ...shadowBattleground,
+      activeBattleground: {
+        ...shadowBattleground.activeBattleground,
+        id: "helms-deep",
+      },
+    };
+
+    expect(canPlayTo(freeBattleground, playerId, mouth, "path")).toBe(true);
+    expect(canPlayTo(freeBattleground, playerId, eye, "path")).toBe(true);
+  });
+
+  it("applies typed when-played draw effects", () => {
+    const aragornState = {
+      ...setPlayerZones(createGame("boromir-when-played"), "aragorn", {
+        hand: ["aragorn-boromir-39-1", "aragorn-denethor-40-1"],
+        draw: ["aragorn-faramir-41-1"],
+        cycle: [],
+      }),
+      activePlayer: "aragorn" as const,
+      pendingDecisions: [],
+    };
+
+    const boromir = tryPlayCard(
+      aragornState,
+      "aragorn",
+      "aragorn-boromir-39-1",
+      "reserve",
+      "aragorn-denethor-40-1",
+    );
+
+    expect(boromir.ok).toBe(true);
+    if (boromir.ok) {
+      expect(boromir.state.players.aragorn.hand).toContain(
+        "aragorn-faramir-41-1",
+      );
+      expect(boromir.events).toContainEqual({
+        type: "cardsDrawn",
+        playerId: "aragorn",
+        count: 1,
+      });
+      expect(validateState(boromir.state)).toEqual([]);
+    }
+
+    const shadowBase = createGame("lidless-eye-when-played");
+    const shadowState = {
+      ...setPlayerZones(shadowBase, "witchKing", {
+        hand: [
+          "witchKing-the-lidless-eye-156-1",
+          "witchKing-trolls-of-udun-137-1",
+        ],
+        draw: ["witchKing-mouth-of-sauron-154-1"],
+        cycle: [],
+      }),
+      activePlayer: "witchKing" as const,
+      pendingDecisions: [],
+    };
+    const sarumanHand = shadowState.players.saruman.hand.length;
+
+    const eye = tryPlayCard(
+      shadowState,
+      "witchKing",
+      "witchKing-the-lidless-eye-156-1",
+      "reserve",
+      "witchKing-trolls-of-udun-137-1",
+    );
+
+    expect(eye.ok).toBe(true);
+    if (eye.ok) {
+      expect(eye.state.players.witchKing.hand).toContain(
+        "witchKing-mouth-of-sauron-154-1",
+      );
+      expect(eye.state.players.saruman.hand).toHaveLength(
+        sarumanHand + 1,
+      );
+      expect(eye.events).toEqual(
+        expect.arrayContaining([
+          {
+            type: "cardsDrawn",
+            playerId: "witchKing",
+            count: 1,
+          },
+          {
+            type: "cardsDrawn",
+            playerId: "saruman",
+            count: 1,
+          },
+        ]),
+      );
+      expect(validateState(eye.state)).toEqual([]);
+    }
+  });
+
+  it("queues Boromir's mandatory forsake after playing him to a path", () => {
+    const state = {
+      ...setPlayerZones(createGame("boromir-path-forsake"), "aragorn", {
+        hand: ["aragorn-boromir-39-1", "aragorn-denethor-40-1"],
+        draw: ["aragorn-faramir-41-1"],
+        cycle: [],
+      }),
+      activePlayer: "aragorn" as const,
+      pendingDecisions: [],
+      activePath: {
+        id: "imladris-rivendel",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    const result = tryPlayCard(
+      state,
+      "aragorn",
+      "aragorn-boromir-39-1",
+      "path",
+      "aragorn-denethor-40-1",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.pendingDecisions[0]).toMatchObject({
+        type: "forsake",
+        playerId: "aragorn",
+        minimum: 1,
+        source: "card:boromir-39",
+      });
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
+  it.each([
+    {
+      name: "Balrog",
+      card: "saruman-balrog-118-1",
+      path: "caradhras",
+    },
+    {
+      name: "Shelob",
+      card: "saruman-shelob-123-1",
+      path: "orodruin",
+    },
+  ])("queues both Free Peoples forsakes when $name moves", ({ card, path }) => {
+    const state = {
+      ...setPlayerZones(createGame(`move-${card}`), "saruman", {
+        reserve: [card],
+      }),
+      activePlayer: "saruman" as const,
+      pendingDecisions: [],
+      roundMemory: {
+        playedToReserve: [],
+        playedCharacterOrItemCards: [],
+      },
+      activePath: {
+        id: path,
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    const result = tryMoveFromReserve(
+      state,
+      "saruman",
+      card,
+      "path",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.pendingDecisions).toMatchObject([
+        { type: "forsake", playerId: "frodo", minimum: 1 },
+        { type: "forsake", playerId: "aragorn", minimum: 1 },
+      ]);
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
+  it("winnows two hand cards, honoring elimination replacements, and draws one", () => {
     const playerId: PlayerId = "frodo";
     const first = "frodo-frodo-baggins-69-1";
     const second = "frodo-sam-gamgee-72-1";
@@ -282,15 +490,16 @@ describe("game engine", () => {
         cycle: [],
       }),
       activePlayer: playerId,
+      pendingDecisions: [],
     };
 
     const result = tryWinnow(state, playerId, first, second);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.state.players[playerId].eliminated).toEqual(
-        expect.arrayContaining([first, second]),
-      );
+      expect(result.state.players[playerId].cycle).toContain(first);
+      expect(result.state.players[playerId].eliminated).toContain(second);
+      expect(result.state.players[playerId].eliminated).not.toContain(first);
       expect(result.state.players[playerId].hand).toContain(drawn);
       expect(validateState(result.state)).toEqual([]);
     }

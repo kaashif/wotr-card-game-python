@@ -123,6 +123,10 @@ export function arrangeGame(state: GameState, arrangement: CompactArrangement = 
       arrangement.activeBattleground === undefined
         ? state.activeBattleground
         : resolvedActiveBattleground,
+    additionalActiveBattlegrounds:
+      arrangement.activeBattleground === undefined
+        ? state.additionalActiveBattlegrounds
+        : [],
     pathDeck: arrangement.pathDeck ?? state.pathDeck,
     battlegroundDecks: {
       free: arrangement.battlegroundDecks?.free ?? state.battlegroundDecks.free,
@@ -137,6 +141,9 @@ export function arrangeGame(state: GameState, arrangement: CompactArrangement = 
   const placedCards = new Set<string>([
     ...(nextState.activePath?.cards ?? []),
     ...(nextState.activeBattleground?.cards ?? []),
+    ...nextState.additionalActiveBattlegrounds.flatMap(
+      (battleground) => battleground.cards,
+    ),
   ]);
   const playerZoneOverrides: Partial<Record<PlayerId, Partial<Record<PlayerZone, readonly string[]>>>> =
     {};
