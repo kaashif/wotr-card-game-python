@@ -531,6 +531,12 @@ describe("pending decision commands", () => {
       type: "combatLosses",
       activatePathAfterResolution: replacement,
     });
+    expect(activation.events).toEqual([
+      expect.objectContaining({ type: "pendingDecisionCreated" }),
+    ]);
+    expect(activation.events).not.toContainEqual(
+      expect.objectContaining({ type: "pathActivated" }),
+    );
 
     const resolved = tryResolveCombatLossDecision(
       activation.state,

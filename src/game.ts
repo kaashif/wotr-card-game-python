@@ -798,6 +798,13 @@ export function tryActivatePathByChoice(
       source: "rules:location-step",
     });
   }
+  if (nextState.activePath?.id !== pathId) {
+    const events = nextState.eventLog.slice(state.eventLog.length);
+    if (events.length === 0) {
+      throw new Error("Deferred path activation must emit a pending-decision event.");
+    }
+    return { ok: true, state: nextState, events };
+  }
   return accepted(nextState, [
     { type: "pathActivated", pathId, replacedPathId: activePathId },
   ]);
@@ -2087,6 +2094,9 @@ function relocateCard(
 }
 
 function accepted(state: GameState, events: readonly GameEvent[]): CommandResult {
+  if (events.length === 0) {
+    throw new Error("Accepted commands must emit at least one event.");
+  }
   return { ok: true, state: appendEvents(state, events), events };
 }
 

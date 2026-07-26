@@ -7,8 +7,8 @@ state after PR #22 and PR #23.
 ## Command And Event Architecture
 
 - [ ] Replace remaining string/log-driven behavior with typed `GameEvent`s.
-- [ ] Ensure every accepted command emits event records.
-- [ ] Ensure every rejected command preserves the state hash.
+- [x] Ensure every accepted command emits event records.
+- [x] Ensure every rejected command preserves the state hash.
 - [ ] Define stable command APIs for player actions.
 - [x] Define stable command APIs for pending decisions.
 - [ ] Define stable command APIs for card-text choices.
