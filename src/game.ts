@@ -1269,12 +1269,14 @@ export function tryResolveCombatLossDecision(
     (instanceId) => !selectedCards.includes(instanceId),
   );
   let nextState = cycleCards(
-    eliminateCards(state, selectedCards),
+    removeCombatCards(state, selectedCards, decision.locationType),
     survivors,
   );
   nextState = resolveOldestPendingDecision(nextState);
   const events: GameEvent[] = selectedCards.map((cardId) => ({
-    type: "cardEliminated",
+    type: hasCombatCycleReplacement(state, cardId, decision.locationType)
+      ? "cardCycled"
+      : "cardEliminated",
     playerId: getCardDefinition(getCard(state, cardId).cardId).owner,
     cardId,
   }));
@@ -1548,7 +1550,7 @@ export function validateState(state: GameState): readonly string[] {
       if (itemDef.type !== "item") {
         errors.push(`Attached card is not an item: ${itemId}`);
       }
-      if (!isAllowedWielderName(itemDef, wielderDef.title)) {
+      if (!isAllowedWielder(itemDef, wielderDef)) {
         errors.push(`Item ${itemId} cannot be attached to ${wielderId}`);
       }
     }
@@ -1779,8 +1781,11 @@ function scoreBattleground(
     (instanceId) => !attackingCards.includes(instanceId),
   );
   const attack = battleground.attackTokens + attackingCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.battlegroundAttack + card.leadershipAttack, 0);
+    .reduce(
+      (sum, instanceId) =>
+        sum + combatIconsFor(state, instanceId, "battleground-attack"),
+      0,
+    );
   const printedDefense = battleground.ignorePrintedDefense === true
     ? 0
     : definition.defenseIcons;
@@ -1788,8 +1793,11 @@ function scoreBattleground(
     printedDefense +
     battleground.defenseTokens +
     defendingCards
-      .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-      .reduce((sum, card) => sum + card.battlegroundDefense + card.leadershipDefense, 0);
+      .reduce(
+        (sum, instanceId) =>
+          sum + combatIconsFor(state, instanceId, "battleground-defense"),
+        0,
+      );
   const winner: Side = attack > defense ? oppositeSide(definition.side) : definition.side;
   const locationDefense = printedDefense + battleground.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
@@ -1824,7 +1832,7 @@ function scoreBattleground(
   if (validSelections.length > 1) {
     return addLog(
       enqueuePendingDecision(
-        eliminateCards(scoredState, attackingCards),
+        removeCombatCards(scoredState, attackingCards, "battleground"),
         decision,
       ),
       `${definition.title}: ${winnerLabel(winner)} scored ${definition.victoryPoints} VP; awaiting defender losses.`,
@@ -1837,9 +1845,10 @@ function scoreBattleground(
 
   return addLog(
     cycleCards(
-      eliminateCards(
+      removeCombatCards(
         scoredState,
         [...attackingCards, ...defenderLosses],
+        "battleground",
       ),
       defenderSurvivors,
     ),
@@ -1862,13 +1871,17 @@ function scorePath(
   const shadowCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "shadow");
   const freeCards = path.cards.filter((instanceId) => cardSide(state, instanceId) === "free");
   const attack = path.attackTokens + shadowCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
+    .reduce(
+      (sum, instanceId) => sum + combatIconsFor(state, instanceId, "path"),
+      0,
+    );
   const locationDefense = definition.defenseIcons + path.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
   const freeDefense = freeCards
-    .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
-    .reduce((sum, card) => sum + card.pathIcons, 0);
+    .reduce(
+      (sum, instanceId) => sum + combatIconsFor(state, instanceId, "path"),
+      0,
+    );
   const uncanceledAttack = Math.max(0, remainingAttack - freeDefense);
   const winner: Side = uncanceledAttack === 0 ? "free" : "shadow";
   const points = winner === "free" ? definition.victoryPoints : uncanceledAttack;
@@ -1908,7 +1921,7 @@ function scorePath(
   if (validSelections.length > 1) {
     return addLog(
       enqueuePendingDecision(
-        eliminateCards(scoredState, shadowCards),
+        removeCombatCards(scoredState, shadowCards, "path"),
         decision,
       ),
       `${definition.title}: ${winnerLabel(winner)} scored ${points} VP; awaiting defender losses.`,
@@ -1921,9 +1934,10 @@ function scorePath(
 
   return addLog(
     cycleCards(
-      eliminateCards(
+      removeCombatCards(
         scoredState,
         [...shadowCards, ...defenderLosses],
+        "path",
       ),
       defenderSurvivors,
     ),
@@ -2053,6 +2067,57 @@ function cycleCards(state: GameState, instanceIds: readonly string[]): GameState
   }, removeAttachmentLinks(state, cardsToCycle));
 }
 
+function removeCombatCards(
+  state: GameState,
+  instanceIds: readonly string[],
+  combatType: "battleground" | "path",
+): GameState {
+  return instanceIds.reduce((nextState, instanceId) => {
+    if (!hasCombatCycleReplacement(nextState, instanceId, combatType)) {
+      return eliminateCards(nextState, [instanceId]);
+    }
+    const ownText = normalizeName(
+      getCardDefinition(getCard(nextState, instanceId).cardId).text,
+    );
+    const attachmentProvidesReplacement = (
+      nextState.attachments[instanceId] ?? []
+    ).some((itemId) =>
+      hasCombatCycleReplacement(nextState, itemId, combatType)
+    );
+    if (
+      ownText.includes("any wielded items are eliminated") &&
+      !attachmentProvidesReplacement
+    ) {
+      const attachedItems = nextState.attachments[instanceId] ?? [];
+      return cycleCards(
+        eliminateCards(nextState, attachedItems),
+        [instanceId],
+      );
+    }
+    return cycleCards(nextState, [instanceId]);
+  }, state);
+}
+
+function hasCombatCycleReplacement(
+  state: GameState,
+  instanceId: string,
+  combatType: "battleground" | "path",
+): boolean {
+  return expandWithAttachedItems(state, [instanceId]).some((cardId) => {
+    const text = normalizeName(
+      getCardDefinition(getCard(state, cardId).cardId).text,
+    );
+    return (
+      ((text.includes("eliminated in combat") ||
+        (combatType === "path" &&
+          text.includes("eliminated in path combat"))) &&
+        text.includes("cycle") &&
+        text.includes("instead")) ||
+      text.includes("eliminated or being forsaken cycle instead")
+    );
+  });
+}
+
 function expandWithAttachedItems(
   state: GameState,
   instanceIds: readonly string[],
@@ -2168,15 +2233,20 @@ function isValidWielder(
     return false;
   }
   const wielderDef = getCardDefinition(wielder.cardId);
-  return wielderDef.type === "character" && isAllowedWielderName(itemDef, wielderDef.title);
+  return wielderDef.type === "character" && isAllowedWielder(itemDef, wielderDef);
 }
 
-function isAllowedWielderName(itemDef: CardDefinition, wielderTitle: string): boolean {
+function isAllowedWielder(
+  itemDef: CardDefinition,
+  wielderDef: CardDefinition,
+): boolean {
   return itemDef.allowedWielders.some((allowed) => {
     const normalizedAllowed = normalizeName(allowed);
-    const normalizedTitle = normalizeName(wielderTitle);
+    const normalizedTitle = normalizeName(wielderDef.title);
+    const normalizedFaction = normalizeName(wielderDef.faction);
     return (
       normalizedAllowed === normalizedTitle ||
+      normalizedAllowed === normalizedFaction ||
       normalizedTitle.includes(normalizedAllowed) ||
       normalizedAllowed.includes(normalizedTitle)
     );
@@ -2480,11 +2550,32 @@ function defenseIconsFor(
   instanceId: string,
   combatType: "battleground" | "path",
 ): number {
-  const definition = getCardDefinition(getCard(state, instanceId).cardId);
-  if (combatType === "path") {
-    return definition.pathIcons;
-  }
-  return definition.battlegroundDefense + definition.leadershipDefense;
+  return combatIconsFor(
+    state,
+    instanceId,
+    combatType === "path" ? "path" : "battleground-defense",
+  );
+}
+
+function combatIconsFor(
+  state: GameState,
+  instanceId: string,
+  combatType: "path" | "battleground-attack" | "battleground-defense",
+): number {
+  return expandWithAttachedItems(state, [instanceId]).reduce(
+    (sum, cardId) => {
+      const definition = getCardDefinition(getCard(state, cardId).cardId);
+      switch (combatType) {
+        case "path":
+          return sum + definition.pathIcons;
+        case "battleground-attack":
+          return sum + definition.battlegroundAttack + definition.leadershipAttack;
+        case "battleground-defense":
+          return sum + definition.battlegroundDefense + definition.leadershipDefense;
+      }
+    },
+    0,
+  );
 }
 
 function cardSide(state: GameState, instanceId: string): Side {

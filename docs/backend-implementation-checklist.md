@@ -98,10 +98,10 @@ state after PR #22 and PR #23.
 ## Items, Attachments, Ownership, And Control
 
 - [ ] Model owner vs controller explicitly.
-- [ ] Support items attached to teammate characters.
-- [ ] Move items with their wielders.
-- [ ] Cycle items to the item owner's cycle pile.
-- [ ] Apply item replacement effects with wielder replacement effects.
+- [x] Support items attached to teammate characters.
+- [x] Move items with their wielders.
+- [x] Cycle items to the item owner's cycle pile.
+- [x] Apply item replacement effects with wielder replacement effects.
 - [ ] Enforce weapon restrictions such as Bow of Galadhrim.
 - [ ] Keep items on active characters from unactivating the character.
 - [ ] Implement item forsake/control semantics for reserve wielders.
