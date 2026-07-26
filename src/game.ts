@@ -1725,7 +1725,7 @@ function scoreBattleground(
   const defendingCards = battleground.cards.filter(
     (instanceId) => !attackingCards.includes(instanceId),
   );
-  const attack = attackingCards
+  const attack = battleground.attackTokens + attackingCards
     .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
     .reduce((sum, card) => sum + card.battlegroundAttack + card.leadershipAttack, 0);
   const printedDefense = battleground.ignorePrintedDefense === true

@@ -108,23 +108,23 @@ state after PR #22 and PR #23.
 
 ## Combat
 
-- [ ] Model path combat and battleground combat explicitly.
-- [ ] Determine attacker and defender sides by combat type/location.
-- [ ] Apply location defense icons before card defense.
-- [ ] Apply defense tokens before card defense.
+- [x] Model path combat and battleground combat explicitly.
+- [x] Determine attacker and defender sides by combat type/location.
+- [x] Apply location defense icons before card defense.
+- [x] Apply defense tokens before card defense.
 - [x] Require defenders to cancel as many attack icons as possible.
 - [x] Implement defender loss assignment choices.
 - [ ] Implement leadership icon support assignment.
 - [ ] Enforce one army supporting only one leader.
 - [ ] Handle ambiguous support choices.
-- [ ] Cycle remaining defenders after combat.
-- [ ] Eliminate attackers according to battleground/path combat rules.
-- [ ] Score Shadow path success as corruption.
-- [ ] Score Free Peoples path success as printed path VP.
-- [ ] Handle combat with no cards.
-- [ ] Handle uncontested combat.
-- [ ] Handle combat ties and equality cases.
-- [ ] Handle final path combat.
+- [x] Cycle remaining defenders after combat.
+- [x] Eliminate attackers according to battleground/path combat rules.
+- [x] Score Shadow path success as corruption.
+- [x] Score Free Peoples path success as printed path VP.
+- [x] Handle combat with no cards.
+- [x] Handle uncontested combat.
+- [x] Handle combat ties and equality cases.
+- [x] Handle final path combat.
 
 ## Scoring And Game End
 
