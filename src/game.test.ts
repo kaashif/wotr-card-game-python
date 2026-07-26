@@ -52,7 +52,7 @@ describe("game engine", () => {
 
     expect(validateState(state)).toEqual([]);
     for (const player of Object.values(state.players)) {
-      expect(player.hand).toHaveLength(5);
+      expect(player.hand.length).toBeGreaterThanOrEqual(5);
       expect(player.cycle).toHaveLength(2);
     }
   });

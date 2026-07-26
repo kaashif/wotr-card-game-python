@@ -45,6 +45,25 @@ const weaponCardIds = new Set([
   "whip-of-many-thongs-124",
   "morgul-blade-162",
 ]);
+const simpleLocationDraws: Readonly<
+  Record<string, readonly (readonly [PlayerId, number])[]>
+> = {
+  "bag-end": [["frodo", 2]],
+  "bucklebury-ferry": [["witchKing", 1], ["frodo", 1]],
+  "inn-of-the-prancing-pony": [["witchKing", 2], ["saruman", 2]],
+  weathertop: [["witchKing", 2]],
+  "imladris-rivendel": [["aragorn", 2]],
+  "the-council-of-elrond": [["frodo", 1], ["aragorn", 1]],
+  "khazad-dum-moria": [["saruman", 2]],
+  "the-cross-roads": [["frodo", 1], ["aragorn", 1]],
+  "henneth-annun": [["aragorn", 1]],
+  "shelob-s-lair": [["saruman", 2]],
+  orodruin: [["witchKing", 2]],
+  "crack-of-mount-doom": [["saruman", 2]],
+  moria: [["saruman", 2]],
+  harad: [["witchKing", 1], ["saruman", 1]],
+  umbar: [["witchKing", 1], ["saruman", 1]],
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -774,7 +793,8 @@ export function tryActivateBattlegroundFromDeck(
   const remainingDeck = state.battlegroundDecks[deckSide].filter(
     (id) => id !== battlegroundId,
   );
-  const nextState = appendActiveBattleground(
+  const nextState = applySimpleLocationActivationEffects(
+    appendActiveBattleground(
     {
       ...state,
       battlegroundDecks: {
@@ -790,18 +810,24 @@ export function tryActivateBattlegroundFromDeck(
       },
     },
     createActiveBattleground(battlegroundId),
+    ),
+    battlegroundId,
   );
-  return accepted(
+  const activationEvent: GameEvent = {
+    type: "battlegroundActivated",
+    battlegroundId,
+    reactivated: false,
+    ignorePrintedDefense: false,
+  };
+  const finalState = appendEvents(
     addLog(nextState, `Activated ${battleground.title} from the ${deckSide} deck.`),
-    [
-      {
-        type: "battlegroundActivated",
-        battlegroundId,
-        reactivated: false,
-        ignorePrintedDefense: false,
-      },
-    ],
+    [activationEvent],
   );
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function tryReactivateBattleground(
@@ -832,7 +858,8 @@ export function tryReactivateBattleground(
   }
 
   const ignorePrintedDefense = scoringSide !== activatingSide;
-  const nextState = appendActiveBattleground(
+  const nextState = applySimpleLocationActivationEffects(
+    appendActiveBattleground(
     {
       ...state,
       scoringAreas: {
@@ -849,18 +876,24 @@ export function tryReactivateBattleground(
       ...createActiveBattleground(battlegroundId),
       ignorePrintedDefense,
     },
+    ),
+    battlegroundId,
   );
-  return accepted(
+  const activationEvent: GameEvent = {
+    type: "battlegroundActivated",
+    battlegroundId,
+    reactivated: true,
+    ignorePrintedDefense,
+  };
+  const finalState = appendEvents(
     addLog(nextState, `Reactivated ${battleground.title} from the ${scoringSide} scoring area.`),
-    [
-      {
-        type: "battlegroundActivated",
-        battlegroundId,
-        reactivated: true,
-        ignorePrintedDefense,
-      },
-    ],
+    [activationEvent],
   );
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function activatePathById(state: GameState, pathId: string): GameState | null {
@@ -882,15 +915,18 @@ export function activatePathById(state: GameState, pathId: string): GameState | 
     return nextState;
   }
   nextState = removeScoredActivePathCards(nextState);
-  return addLog(
-    {
+  return applySimpleLocationActivationEffects(
+    addLog(
+      {
       ...nextState,
       activePath: { id: pathId, cards: [], attackTokens: 0, defenseTokens: 0 },
       currentPathNumber: path.pathNumber,
       pathDeck: nextState.pathDeck.filter((id) => id !== pathId),
       activatedPaths: [...nextState.activatedPaths, pathId],
-    },
-    `Activated ${path.title}.`,
+      },
+      `Activated ${path.title}.`,
+    ),
+    pathId,
   );
 }
 
@@ -1725,12 +1761,47 @@ function startRound(state: GameState): GameState {
       ],
     };
 
+  const withBattlegroundEffects =
+    battlegroundId === undefined
+      ? nextState
+      : applySimpleLocationActivationEffects(
+          nextState,
+          battlegroundId,
+        );
+  const withLocationEffects =
+    nextPathId === null
+      ? withBattlegroundEffects
+      : applySimpleLocationActivationEffects(
+          withBattlegroundEffects,
+          nextPathId,
+        );
   return addLog(
-    nextState,
+    withLocationEffects,
     `Round ${state.round}: activated ${labelBattleground(nextBattleground)} and ${labelPath(
       nextPath,
     )}.`,
   );
+}
+
+function applySimpleLocationActivationEffects(
+  state: GameState,
+  locationId: string,
+): GameState {
+  let nextState = state;
+  for (const [playerId, count] of simpleLocationDraws[locationId] ?? []) {
+    const handSize = nextState.players[playerId].hand.length;
+    nextState = drawCards(nextState, playerId, count);
+    const drawn = nextState.players[playerId].hand.length - handSize;
+    if (drawn > 0) {
+      nextState = appendEvents(nextState, [
+        { type: "cardsDrawn", playerId, count: drawn },
+      ]);
+    }
+  }
+  if (locationId === "morgai" && nextState.activePath?.id === locationId) {
+    nextState = addActivePathAttackTokens(nextState, 1);
+  }
+  return nextState;
 }
 
 function createActiveBattleground(

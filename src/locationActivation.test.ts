@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { battlegroundDefinitions, pathDefinitions } from "./data";
 import {
+  activatePathById,
   createGame,
   eligiblePathsByNumber,
   resolveCombat,
@@ -66,11 +67,11 @@ describe("round location activation", () => {
     expect(next.round).toBe(3);
     expect(next.activeBattleground?.id).toBe(fallback.id);
     expect(next.battlegroundDecks.shadow).toEqual([]);
-    expect(next.eventLog.at(-1)).toMatchObject({
+    expect(next.eventLog).toContainEqual(expect.objectContaining({
       type: "roundStarted",
       round: 3,
       battlegroundId: fallback.id,
-    });
+    }));
     expect(assertGameInvariants(next)).toEqual([]);
   });
 
@@ -89,11 +90,11 @@ describe("round location activation", () => {
     const next = resolveCombat(state);
 
     expect(next.activeBattleground).toBeNull();
-    expect(next.eventLog.at(-1)).toMatchObject({
+    expect(next.eventLog).toContainEqual(expect.objectContaining({
       type: "roundStarted",
       round: 3,
       battlegroundId: null,
-    });
+    }));
     expect(assertGameInvariants(next)).toEqual([]);
   });
 
@@ -319,6 +320,121 @@ describe("round location activation", () => {
       expect(finished.phase).toBe("gameOver");
       expect(finished.activePath).toBeNull();
       expect(assertGameInvariants(finished)).toEqual([]);
+    }
+  });
+
+  it("applies mandatory draw text when a path activates", () => {
+    const base = createGame("bag-end-activation-text");
+    const state = {
+      ...base,
+      activePath: {
+        id: "gildors-encampment",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      pathDeck: pathDefinitions
+        .map((path) => path.id)
+        .filter((id) => id !== "gildors-encampment"),
+      activatedPaths: ["gildors-encampment"],
+    };
+    const before = state.players.frodo.hand.length;
+
+    const next = activatePathById(state, "bag-end");
+
+    expect(next?.players.frodo.hand).toHaveLength(before + 2);
+    expect(next?.eventLog).toContainEqual({
+      type: "cardsDrawn",
+      playerId: "frodo",
+      count: 2,
+    });
+    if (next !== null) {
+      expect(assertGameInvariants(next)).toEqual([]);
+    }
+  });
+
+  it("applies mandatory draw text for deck activation and reactivation", () => {
+    const base = createGame("battleground-activation-text");
+    const fromDeck = tryActivateBattlegroundFromDeck(
+      {
+        ...base,
+        battlegroundDecks: {
+          ...base.battlegroundDecks,
+          shadow: [
+            "harad",
+            ...base.battlegroundDecks.shadow.filter((id) => id !== "harad"),
+          ],
+        },
+      },
+      "harad",
+    );
+
+    expect(fromDeck.ok).toBe(true);
+    if (!fromDeck.ok) {
+      return;
+    }
+    expect(fromDeck.state.players.witchKing.hand).toHaveLength(
+      base.players.witchKing.hand.length + 1,
+    );
+    expect(fromDeck.state.players.saruman.hand).toHaveLength(
+      base.players.saruman.hand.length + 1,
+    );
+
+    const beforeReactivation = fromDeck.state.players.saruman.hand.length;
+    const reactivationState = {
+      ...fromDeck.state,
+      battlegroundDecks: {
+        ...fromDeck.state.battlegroundDecks,
+        shadow: fromDeck.state.battlegroundDecks.shadow.filter(
+          (id) => id !== "moria",
+        ),
+      },
+      scoringAreas: {
+        ...fromDeck.state.scoringAreas,
+        battlegrounds: {
+          ...fromDeck.state.scoringAreas.battlegrounds,
+          shadow: ["moria"],
+        },
+      },
+    };
+    const reactivated = tryReactivateBattleground(
+      reactivationState,
+      "moria",
+      "shadow",
+    );
+
+    expect(reactivated.ok).toBe(true);
+    if (reactivated.ok) {
+      expect(reactivated.state.players.saruman.hand).toHaveLength(
+        beforeReactivation + 2,
+      );
+      expect(assertGameInvariants(reactivated.state)).toEqual([]);
+    }
+  });
+
+  it("adds Morgai's mandatory attack marker on activation", () => {
+    const base = createGame("morgai-activation-text");
+    const state = {
+      ...base,
+      currentPathNumber: 8,
+      activePath: {
+        id: "morgul-vale",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      pathDeck: ["morgai"],
+      activatedPaths: ["morgul-vale"],
+    };
+
+    const next = activatePathById(state, "morgai");
+
+    expect(next?.activePath).toMatchObject({
+      id: "morgai",
+      attackTokens: 1,
+    });
+    if (next !== null) {
+      expect(assertGameInvariants(next)).toEqual([]);
     }
   });
 });
