@@ -115,7 +115,10 @@ export function createGame(seed = String(Date.now())): GameState {
         rng,
       ),
     },
-    pathDeck: pathDefinitions.map((path) => path.id),
+    pathDeck: shuffle(
+      pathDefinitions.map((path) => path.id),
+      rng,
+    ),
     activatedPaths: [],
     activeBattleground: null,
     activePath: null,
@@ -718,10 +721,11 @@ export function eligiblePathsByNumber(
   state: GameState,
   pathNumber: number,
 ): readonly string[] {
-  return pathDefinitions
-    .filter((path) => path.pathNumber === pathNumber)
-    .map((path) => path.id)
-    .filter((pathId) => !state.activatedPaths.includes(pathId));
+  return state.pathDeck.filter(
+    (pathId) =>
+      pathById.get(pathId)?.pathNumber === pathNumber &&
+      !state.activatedPaths.includes(pathId),
+  );
 }
 
 export function enqueuePendingDecision(
@@ -958,9 +962,18 @@ export function canMoveTo(
 }
 
 function startRound(state: GameState): GameState {
-  const side = getSideForRound(state.round);
-  const battlegroundDeck = state.battlegroundDecks[side];
-  const [battlegroundId, ...remainingBattlegrounds] = battlegroundDeck;
+  const startingSide = getSideForRound(state.round);
+  const fallbackSide = oppositeSide(startingSide);
+  const battlegroundSide =
+    state.battlegroundDecks[startingSide].length > 0
+      ? startingSide
+      : state.battlegroundDecks[fallbackSide].length > 0
+        ? fallbackSide
+        : null;
+  const battlegroundId =
+    battlegroundSide === null
+      ? undefined
+      : state.battlegroundDecks[battlegroundSide][0];
   const nextBattleground =
     battlegroundId === undefined
       ? null
@@ -970,6 +983,13 @@ function startRound(state: GameState): GameState {
           attackTokens: 0,
           defenseTokens: 0,
         } satisfies ActiveBattleground;
+  const nextBattlegroundDecks =
+    battlegroundSide === null
+      ? state.battlegroundDecks
+      : {
+          ...state.battlegroundDecks,
+          [battlegroundSide]: state.battlegroundDecks[battlegroundSide].slice(1),
+        };
 
   const nextPathId =
     state.pathDeck.find((id) => pathById.get(id)?.pathNumber === state.currentPathNumber)
@@ -989,15 +1009,11 @@ function startRound(state: GameState): GameState {
       ? state.pathDeck
       : state.pathDeck.filter((id) => id !== nextPathId);
 
-  return addLog(
-    {
+  const nextState: GameState = {
       ...state,
       phase: "action",
       activePlayer: turnOrder[(state.round - 1) % turnOrder.length] ?? "frodo",
-      battlegroundDecks: {
-        ...state.battlegroundDecks,
-        [side]: remainingBattlegrounds,
-      },
+      battlegroundDecks: nextBattlegroundDecks,
       pathDeck: nextPathDeck,
       activatedPaths:
         nextPathId === null || state.activatedPaths.includes(nextPathId)
@@ -1006,7 +1022,19 @@ function startRound(state: GameState): GameState {
       activeBattleground: nextBattleground,
       activePath: nextPath,
       roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
-    },
+      eventLog: [
+        ...state.eventLog,
+        {
+          type: "roundStarted",
+          round: state.round,
+          pathId: nextPathId,
+          battlegroundId: battlegroundId ?? null,
+        },
+      ],
+    };
+
+  return addLog(
+    nextState,
     `Round ${state.round}: activated ${labelBattleground(nextBattleground)} and ${labelPath(
       nextPath,
     )}.`,

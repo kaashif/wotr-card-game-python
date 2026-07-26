@@ -26,8 +26,8 @@ state after PR #22 and PR #23.
 ## Location Activation
 
 - [ ] Activate battlegrounds from the correct side deck.
-- [ ] Fall back to the other side deck when the starting side deck is empty.
-- [ ] Handle no-battleground activation when both decks are empty.
+- [x] Fall back to the other side deck when the starting side deck is empty.
+- [x] Handle no-battleground activation when both decks are empty.
 - [ ] Activate specific battlegrounds from a deck by card/location text.
 - [ ] Reshuffle a battleground deck after search/take.
 - [ ] Reactivate battlegrounds from scoring areas, not decks.
@@ -37,8 +37,8 @@ state after PR #22 and PR #23.
 
 ## Path Activation And Replacement
 
-- [ ] Randomly choose the first path among path 1 cards.
-- [ ] Randomly choose later paths among the next path number.
+- [x] Randomly choose the first path among path 1 cards.
+- [x] Randomly choose later paths among the next path number.
 - [ ] Let card text choose eligible same-number paths.
 - [ ] Let card text choose eligible next-higher paths.
 - [ ] Prevent activating a specific path more than once per game.
