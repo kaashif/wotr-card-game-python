@@ -15,10 +15,14 @@ import {
   usePlayerRingToken,
   validateState,
 } from "./game";
+import {
+  createPublicGameView,
+  type PublicGameView,
+} from "./publicView";
 import type { ForsakeSource, GameState, PlayerId, PlayDestination } from "./types";
 
 export const archiveVersion = 1;
-export const engineVersion = "engine-command-journal-v3";
+export const engineVersion = "engine-command-journal-v4";
 export const rulesReferenceVersion = "rules-v1.1-cards-v0.2";
 export const rngVersion = "fnv1a-seed-mulberry32-v1";
 
@@ -85,6 +89,20 @@ export interface ReplayVerification {
   readonly archive: GameArchive;
   readonly finalState: GameState;
   readonly errors: readonly string[];
+}
+
+export interface PublicJournalEvent {
+  readonly index: number;
+  readonly command: Readonly<Record<string, unknown>>;
+  readonly validationErrors: readonly string[];
+}
+
+export interface PublicGameArchive {
+  readonly metadata: GameArchiveMetadata;
+  readonly seed: string;
+  readonly viewerId: PlayerId;
+  readonly events: readonly PublicJournalEvent[];
+  readonly finalView: PublicGameView;
 }
 
 export function currentArchiveMetadata(): GameArchiveMetadata {
@@ -188,6 +206,29 @@ export function replayArchive(archive: GameArchive): ReplayVerification {
   return { archive, finalState: state, errors };
 }
 
+export function createPublicArchive(
+  archive: GameArchive,
+  viewerId: PlayerId,
+): PublicGameArchive {
+  let state = createGame(archive.seed);
+  const events: PublicJournalEvent[] = [];
+  for (const event of archive.events) {
+    events.push({
+      index: event.index,
+      command: redactArchiveCommand(state, event.command, viewerId),
+      validationErrors: event.validationErrors,
+    });
+    state = applyGameCommand(state, event.command);
+  }
+  return {
+    metadata: archive.metadata,
+    seed: archive.seed,
+    viewerId,
+    events,
+    finalView: createPublicGameView(state, viewerId),
+  };
+}
+
 export function applyGameCommand(state: GameState, command: GameCommand): GameState {
   switch (command.action) {
     case "attach":
@@ -242,6 +283,33 @@ export function hashReferenceData(): string {
 
 export function stableHash(value: unknown): string {
   return fnv1a32(stableStringify(value)).toString(16).padStart(8, "0");
+}
+
+function redactArchiveCommand(
+  state: GameState,
+  command: GameCommand,
+  viewerId: PlayerId,
+): Readonly<Record<string, unknown>> {
+  switch (command.action) {
+    case "cycle":
+      return command.player === viewerId
+        ? command
+        : { action: command.action, player: command.player };
+    case "forsake":
+      return command.player === viewerId || command.card === undefined
+        ? command
+        : {
+            action: command.action,
+            player: command.player,
+            source: command.source,
+          };
+    case "selectCard":
+      return state.selection.playerId === viewerId
+        ? command
+        : { action: command.action, card: null };
+    default:
+      return command;
+  }
 }
 
 function metadataMatches(left: GameArchiveMetadata, right: GameArchiveMetadata): boolean {

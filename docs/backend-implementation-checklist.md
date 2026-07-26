@@ -157,7 +157,7 @@ state after PR #22 and PR #23.
 - [x] Redact hidden search information.
 - [x] Prevent public logs from revealing hidden card identities.
 - [ ] Separate private `GameState` from public/UI view models.
-- [ ] Add visibility-aware archive/replay output.
+- [x] Add visibility-aware archive/replay output.
 
 ## Archive And Replay Hardening
 

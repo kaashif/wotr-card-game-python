@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendCommand,
+  createPublicArchive,
   createGameArchive,
   currentArchiveMetadata,
   hashGameState,
@@ -79,6 +80,24 @@ describe("game archives", () => {
     expect(() => appendCommand(corrupted, { action: "ring", player: "frodo" })).toThrow(
       /Cannot append to invalid archive/,
     );
+  });
+
+  it("creates viewer-specific archives without opponent private card identities", () => {
+    const initial = createGame("archive-public-view");
+    const secret = mustHave(initial.players.saruman.hand[0]);
+    const archive = createGameArchive("archive-public-view", [
+      { action: "cycle", player: "saruman", card: secret },
+    ]);
+
+    const opponentArchive = createPublicArchive(archive, "frodo");
+    const ownerArchive = createPublicArchive(archive, "saruman");
+
+    expect(opponentArchive.events[0]?.command).toEqual({
+      action: "cycle",
+      player: "saruman",
+    });
+    expect(JSON.stringify(opponentArchive)).not.toContain(secret);
+    expect(JSON.stringify(ownerArchive)).toContain(secret);
   });
 });
 
