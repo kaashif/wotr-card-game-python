@@ -14,6 +14,7 @@ import {
   tryResolveForsakeDecision,
   tryResolveCycleFromHandDecision,
   tryResolveDrawPlayCycleRestDecision,
+  tryResolveSearchDecision,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 import type { GameState, PlayerId } from "./types";
@@ -27,10 +28,20 @@ describe("round location activation", () => {
 
     expect(state.round).toBe(1);
     expect(battleground?.side).toBe("free");
+    const activatedShadowBattlegrounds = [
+      state.activeBattleground,
+      ...state.additionalActiveBattlegrounds,
+    ].filter(
+      (active) =>
+        active !== null &&
+        battlegroundDefinitions.find(
+          (definition) => definition.id === active.id,
+        )?.side === "shadow",
+    ).length;
     expect(state.battlegroundDecks.shadow).toHaveLength(
       battlegroundDefinitions.filter(
         (definition) => definition.side === "shadow",
-      ).length,
+      ).length - activatedShadowBattlegrounds,
     );
   });
 
@@ -181,7 +192,11 @@ describe("round location activation", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.state.scoringAreas.battlegrounds.free).not.toContain(target);
-      expect(result.state.additionalActiveBattlegrounds.at(-1)).toMatchObject({
+      expect(
+        result.state.additionalActiveBattlegrounds.find(
+          (battleground) => battleground.id === target,
+        ),
+      ).toMatchObject({
         id: target,
         ignorePrintedDefense: true,
       });
@@ -220,7 +235,12 @@ describe("round location activation", () => {
     ];
 
     expect(scored).toEqual(expect.arrayContaining([firstId, secondId]));
-    expect(next.additionalActiveBattlegrounds).toEqual([]);
+    expect([
+      next.activeBattleground?.id,
+      ...next.additionalActiveBattlegrounds.map(
+        (battleground) => battleground.id,
+      ),
+    ]).not.toEqual(expect.arrayContaining([firstId, secondId]));
     expect(assertGameInvariants(next)).toEqual([]);
   });
 
@@ -756,6 +776,173 @@ describe("round location activation", () => {
       for (const cardId of drawnCards.filter((id) => id !== nazgul)) {
         expect(result.state.players.witchKing.cycle).toContain(cardId);
       }
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("runs Edoras activation text and activates Helm's Deep from the deck", () => {
+    const base = createGame("edoras-chain");
+    const state = {
+      ...base,
+      pendingDecisions: [],
+      activeBattleground: {
+        id: "moria",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      additionalActiveBattlegrounds: [],
+      battlegroundDecks: {
+        free: ["edoras", "helms-deep"],
+        shadow: base.battlegroundDecks.shadow.filter(
+          (id) => id !== "moria",
+        ),
+      },
+    };
+
+    const result = tryActivateBattlegroundFromDeck(state, "edoras");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect([
+        result.state.activeBattleground?.id,
+        ...result.state.additionalActiveBattlegrounds.map(
+          (battleground) => battleground.id,
+        ),
+      ]).toEqual(expect.arrayContaining(["edoras", "helms-deep"]));
+      expect(result.state.battlegroundDecks.free).toEqual([]);
+      expect(result.events).toContainEqual(
+        expect.objectContaining({
+          type: "battlegroundActivated",
+          battlegroundId: "helms-deep",
+        }),
+      );
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("runs Lorien activation text and reactivates Dol Guldur", () => {
+    const base = createGame("lorien-dol-guldur-chain");
+    const state = {
+      ...base,
+      pendingDecisions: [],
+      activeBattleground: {
+        id: "moria",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      additionalActiveBattlegrounds: [],
+      battlegroundDecks: {
+        free: ["lorien"],
+        shadow: base.battlegroundDecks.shadow.filter(
+          (id) => id !== "dol-guldur" && id !== "moria",
+        ),
+      },
+      scoringAreas: {
+        ...base.scoringAreas,
+        battlegrounds: {
+          ...base.scoringAreas.battlegrounds,
+          shadow: ["dol-guldur"],
+        },
+      },
+    };
+
+    const result = tryActivateBattlegroundFromDeck(state, "lorien");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect([
+        result.state.activeBattleground?.id,
+        ...result.state.additionalActiveBattlegrounds.map(
+          (battleground) => battleground.id,
+        ),
+      ]).toEqual(expect.arrayContaining(["lorien", "dol-guldur"]));
+      expect(result.state.scoringAreas.battlegrounds.shadow).not.toContain(
+        "dol-guldur",
+      );
+      expect(
+        result.state.additionalActiveBattlegrounds.find(
+          (battleground) => battleground.id === "dol-guldur",
+        )?.ignorePrintedDefense,
+      ).toBe(true);
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("offers Saruman at Orthanc and recycles the remaining cycle pile", () => {
+    const base = createGame("orthanc-search");
+    const owned = ownedCards(base, "saruman");
+    const saruman = owned.find(
+      (instanceId) =>
+        getCardDefinition(getCard(base, instanceId).cardId).title ===
+        "Saruman",
+    );
+    const other = owned.find((instanceId) => instanceId !== saruman);
+    expect(saruman).toBeDefined();
+    expect(other).toBeDefined();
+    if (saruman === undefined || other === undefined) {
+      return;
+    }
+    const player = base.players.saruman;
+    const state: GameState = {
+      ...base,
+      pendingDecisions: [],
+      activeBattleground: {
+        id: "helms-deep",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      additionalActiveBattlegrounds: [],
+      battlegroundDecks: {
+        free: base.battlegroundDecks.free.filter(
+          (id) => id !== "helms-deep",
+        ),
+        shadow: ["orthanc"],
+      },
+      players: {
+        ...base.players,
+        saruman: {
+          ...player,
+          hand: [],
+          draw: owned.filter(
+            (instanceId) =>
+              instanceId !== saruman && instanceId !== other,
+          ),
+          cycle: [saruman, other],
+          reserve: [],
+          eliminated: [],
+        },
+      },
+    };
+
+    const activation = tryActivateBattlegroundFromDeck(state, "orthanc");
+
+    expect(activation.ok).toBe(true);
+    if (!activation.ok) {
+      return;
+    }
+    expect(activation.state.pendingDecisions[0]).toMatchObject({
+      type: "search",
+      playerId: "saruman",
+      choices: [saruman],
+      minimum: 0,
+      maximum: 1,
+      recycleCycleAfterResolution: true,
+    });
+
+    const result = tryResolveSearchDecision(
+      activation.state,
+      "saruman",
+      [saruman],
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.players.saruman.hand).toContain(saruman);
+      expect(result.state.players.saruman.cycle).toEqual([]);
+      expect(result.state.players.saruman.draw).toContain(other);
       expect(assertGameInvariants(result.state)).toEqual([]);
     }
   });

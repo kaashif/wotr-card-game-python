@@ -190,6 +190,11 @@ const drawPlayCycleLocations: Readonly<
     playable: "army",
   },
 };
+const namedBattlegroundActivations: Readonly<Record<string, string>> = {
+  edoras: "helms-deep",
+  lorien: "dol-guldur",
+  "dol-guldur": "lorien",
+};
 
 const cardById: ReadonlyMap<string, CardDefinition> = new Map(
   cardDefinitions.map((card) => [card.id, card]),
@@ -1381,7 +1386,7 @@ export function tryResolveSearchDecision(
       relocateCard(current, playerId, instanceId, decision.destination),
     state,
   );
-  if (searchedDrawDeck) {
+  if (searchedDrawDeck && decision.recycleCycleAfterResolution !== true) {
     const player = nextState.players[playerId];
     nextState = updatePlayer(nextState, playerId, (current) => ({
       ...current,
@@ -1393,6 +1398,21 @@ export function tryResolveSearchDecision(
           ),
         ),
       ),
+    }));
+  }
+  if (decision.recycleCycleAfterResolution === true) {
+    const player = nextState.players[playerId];
+    nextState = updatePlayer(nextState, playerId, (current) => ({
+      ...current,
+      draw: shuffle(
+        [...player.draw, ...player.cycle],
+        mulberry32(
+          hashSeed(
+            `${state.seed}:recycle:${state.eventLog.length}:${playerId}`,
+          ),
+        ),
+      ),
+      cycle: [],
     }));
   }
   nextState = resolveOldestPendingDecision(nextState);
@@ -2137,7 +2157,61 @@ function applySimpleLocationActivationEffects(
       source: `location:${locationId}`,
     });
   }
+  if (locationId === "orthanc") {
+    const sarumanChoices = [
+      ...nextState.players.saruman.draw,
+      ...nextState.players.saruman.cycle,
+    ].filter(
+      (instanceId) =>
+        normalizeName(
+          getCardDefinition(getCard(nextState, instanceId).cardId).title,
+        ) === "saruman",
+    );
+    nextState = enqueuePendingDecision(nextState, {
+      type: "search",
+      playerId: "saruman",
+      zones: ["draw", "cycle"],
+      choices: sarumanChoices,
+      minimum: 0,
+      maximum: Math.min(1, sarumanChoices.length),
+      destination: "hand",
+      recycleCycleAfterResolution: true,
+      source: "location:orthanc",
+    });
+  }
+  const namedBattleground = namedBattlegroundActivations[locationId];
+  if (namedBattleground !== undefined) {
+    nextState = applyNamedBattlegroundActivation(
+      nextState,
+      locationId,
+      namedBattleground,
+    );
+  }
   return nextState;
+}
+
+function applyNamedBattlegroundActivation(
+  state: GameState,
+  sourceId: string,
+  targetId: string,
+): GameState {
+  if (activeBattlegroundIds(state).includes(targetId)) {
+    return state;
+  }
+  const fromDeck = tryActivateBattlegroundFromDeck(state, targetId);
+  if (fromDeck.ok) {
+    return fromDeck.state;
+  }
+  const sourceSide = battlegroundById.get(sourceId)?.side;
+  if (sourceSide === undefined) {
+    return state;
+  }
+  const fromScoringArea = tryReactivateBattleground(
+    state,
+    targetId,
+    sourceSide,
+  );
+  return fromScoringArea.ok ? fromScoringArea.state : state;
 }
 
 function createActiveBattleground(

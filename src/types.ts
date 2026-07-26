@@ -210,6 +210,7 @@ export type PendingDecision =
       readonly minimum: number;
       readonly maximum: number;
       readonly destination: "hand" | "cycle" | "eliminated";
+      readonly recycleCycleAfterResolution?: boolean;
       readonly source?: string;
     };
 

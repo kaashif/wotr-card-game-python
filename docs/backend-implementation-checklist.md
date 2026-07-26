@@ -31,7 +31,7 @@ state after PR #22 and PR #23.
 - [x] Activate specific battlegrounds from a deck by card/location text.
 - [x] Reshuffle a battleground deck after search/take.
 - [x] Reactivate battlegrounds from scoring areas, not decks.
-- [ ] Re-run activation text for reactivated battlegrounds.
+- [x] Re-run activation text for reactivated battlegrounds.
 - [x] Implement reactivated battleground defense-ignore rule.
 - [x] Support multiple active battlegrounds.
 
@@ -49,12 +49,12 @@ state after PR #22 and PR #23.
 ## Location Text Effects
 
 - [x] Implement all path activation text.
-- [ ] Implement all battleground activation text.
+- [x] Implement all battleground activation text.
 - [x] Implement location draw effects.
 - [x] Implement location forsake effects.
 - [x] Implement location cycle effects.
 - [x] Implement location draw/play/cycle-rest effects.
-- [ ] Implement named battleground/path activation text.
+- [x] Implement named battleground/path activation text.
 - [x] Model mandatory vs optional location text.
 
 ## Card Effect Engine

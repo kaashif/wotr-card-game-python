@@ -24,7 +24,10 @@ describe("public game views", () => {
   it("redacts another player's search candidates from decisions and events", () => {
     const base = createGame("public-view-search");
     const secretChoices = base.players.witchKing.draw.slice(0, 3);
-    const state = enqueuePendingDecision(base, {
+    const state = enqueuePendingDecision({
+      ...base,
+      pendingDecisions: [],
+    }, {
       type: "search",
       playerId: "witchKing",
       zones: ["draw"],
