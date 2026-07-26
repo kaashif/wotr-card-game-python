@@ -1,8 +1,6 @@
 import "./styles.css";
 import { players, turnOrder } from "./data";
 import {
-  canMoveTo,
-  canPlayTo,
   createGame,
   cycleSelected,
   discardOversizedHands,
@@ -20,6 +18,7 @@ import {
   selectPlayer,
   useRingToken,
 } from "./game";
+import { getLegalActions } from "./legalActions";
 import { clearSavedGame, loadGame, saveGame } from "./storage";
 import type {
   CardDefinition,
@@ -148,11 +147,14 @@ function runAction(action: string): void {
       }
       return;
     }
-    case "play":
-      commit(playOrMoveSelected());
+    case "play-battleground":
+      commit(playOrMoveSelectedTo("battleground"));
       return;
-    case "reserve":
-      commit(playReserveSelected());
+    case "play-path":
+      commit(playOrMoveSelectedTo("path"));
+      return;
+    case "play-reserve":
+      commit(playOrMoveSelectedTo("reserve"));
       return;
     case "cycle":
       commit(cycleSelected(state));
@@ -172,36 +174,23 @@ function runAction(action: string): void {
   }
 }
 
-function playOrMoveSelected(): GameState {
+function playOrMoveSelectedTo(destination: PlayDestination): GameState {
   const instanceId = state.selection.cardId;
   const playerId = state.selection.playerId;
   if (instanceId === null) {
     return state;
   }
-  const player = state.players[playerId];
-  if (player.reserve.includes(instanceId)) {
-    const destination = bestMoveDestination(state, playerId, instanceId);
-    return destination === null
-      ? state
-      : nextTurn(moveFromReserve(state, playerId, instanceId, destination));
-  }
-  const destination = bestPlayDestination(state, playerId, instanceId);
-  return destination === null
-    ? state
-    : nextTurn(playSelected(state, destination));
-}
-
-function playReserveSelected(): GameState {
-  const instanceId = state.selection.cardId;
-  const playerId = state.selection.playerId;
-  if (
-    instanceId === null ||
-    !state.players[playerId].hand.includes(instanceId) ||
-    !canPlayTo(state, playerId, instanceId, "reserve")
-  ) {
+  const action = selectedLegalCardAction();
+  if (action === null || !action.destinations.includes(destination)) {
     return state;
   }
-  return nextTurn(playSelected(state, "reserve"));
+  if (action.zone === "reserve") {
+    if (destination === "reserve") {
+      return state;
+    }
+    return nextTurn(moveFromReserve(state, playerId, instanceId, destination));
+  }
+  return nextTurn(playSelected(state, destination));
 }
 
 function commit(nextState: GameState, shouldSave = true): void {
@@ -231,11 +220,12 @@ function render(): void {
         </section>
         <nav class="actions" aria-label="Game actions">
           <button type="button" data-action="new">New</button>
-          <button type="button" data-action="play" ${canPlayOrMoveSelected() ? "" : "disabled"}>Play</button>
-          <button type="button" data-action="reserve" ${canReserveSelected() ? "" : "disabled"}>Reserve</button>
+          <button type="button" data-action="play-battleground" ${canSelectedReach("battleground") ? "" : "disabled"}>Play Battle</button>
+          <button type="button" data-action="play-path" ${canSelectedReach("path") ? "" : "disabled"}>Play Path</button>
+          <button type="button" data-action="play-reserve" ${canSelectedReach("reserve") ? "" : "disabled"}>Reserve</button>
           <button type="button" data-action="cycle" ${canCycleSelected() ? "" : "disabled"}>Cycle</button>
-          <button type="button" data-action="ring">Ring</button>
-          <button type="button" data-action="pass">Pass</button>
+          <button type="button" data-action="ring" ${selectedPlayerLegalActions().canUseRing ? "" : "disabled"}>Ring</button>
+          <button type="button" data-action="pass" ${selectedPlayerLegalActions().pass.legal ? "" : "disabled"}>Pass</button>
           <button type="button" data-action="resolve">Resolve</button>
         </nav>
       </header>
@@ -484,62 +474,26 @@ function clearZoomTimer(): void {
   }
 }
 
-function canPlayOrMoveSelected(): boolean {
-  const instanceId = state.selection.cardId;
-  const playerId = state.selection.playerId;
-  if (instanceId === null) {
-    return false;
-  }
-  if (state.players[playerId].reserve.includes(instanceId)) {
-    return bestMoveDestination(state, playerId, instanceId) !== null;
-  }
-  return bestPlayDestination(state, playerId, instanceId) !== null;
-}
-
-function canReserveSelected(): boolean {
-  const instanceId = state.selection.cardId;
-  const playerId = state.selection.playerId;
-  return (
-    instanceId !== null &&
-    state.players[playerId].hand.includes(instanceId) &&
-    canPlayTo(state, playerId, instanceId, "reserve")
-  );
+function canSelectedReach(destination: PlayDestination): boolean {
+  return selectedLegalCardAction()?.destinations.includes(destination) ?? false;
 }
 
 function canCycleSelected(): boolean {
+  return selectedLegalCardAction()?.canCycle ?? false;
+}
+
+function selectedPlayerLegalActions() {
+  return getLegalActions(state, state.selection.playerId);
+}
+
+function selectedLegalCardAction() {
   const instanceId = state.selection.cardId;
-  return instanceId !== null && state.players[state.selection.playerId].hand.includes(instanceId);
-}
-
-function bestPlayDestination(
-  gameState: GameState,
-  playerId: PlayerId,
-  instanceId: string,
-): PlayDestination | null {
-  if (canPlayTo(gameState, playerId, instanceId, "battleground")) {
-    return "battleground";
+  if (instanceId === null) {
+    return null;
   }
-  if (canPlayTo(gameState, playerId, instanceId, "path")) {
-    return "path";
-  }
-  if (canPlayTo(gameState, playerId, instanceId, "reserve")) {
-    return "reserve";
-  }
-  return null;
-}
-
-function bestMoveDestination(
-  gameState: GameState,
-  playerId: PlayerId,
-  instanceId: string,
-): Exclude<PlayDestination, "reserve"> | null {
-  if (canMoveTo(gameState, playerId, instanceId, "battleground")) {
-    return "battleground";
-  }
-  if (canMoveTo(gameState, playerId, instanceId, "path")) {
-    return "path";
-  }
-  return null;
+  return selectedPlayerLegalActions().cardActions.find(
+    (action) => action.cardId === instanceId,
+  ) ?? null;
 }
 
 function ownerForCard(gameState: GameState, instanceId: string): PlayerId | null {

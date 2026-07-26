@@ -203,7 +203,7 @@ state after PR #22 and PR #23.
 - [x] Expose legal reserve actions from the backend.
 - [x] Expose legal pending-decision choices from the backend.
 - [x] Expose pass legality and reason from the backend.
-- [ ] Stop UI code from guessing the best destination.
+- [x] Stop UI code from guessing the best destination.
 
 ## Cleanup
 
