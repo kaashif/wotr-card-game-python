@@ -5,6 +5,7 @@ import {
   createGame,
   eligiblePathsByNumber,
   resolveCombat,
+  tryActivatePathByChoice,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 
@@ -93,6 +94,111 @@ describe("round location activation", () => {
     };
 
     expect(eligiblePathsByNumber(withoutCandidate, 2)).not.toContain(candidate);
+  });
+
+  it("chooses a different same-number path and scores the replaced path first", () => {
+    const state = createGame("same-number-path");
+    const replacement = eligiblePathsByNumber(state, 1)[0];
+    expect(replacement).toBeDefined();
+    if (replacement === undefined || state.activePath === null) {
+      return;
+    }
+
+    const result = tryActivatePathByChoice(state, replacement, "same-number");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.activePath?.id).toBe(replacement);
+      expect(result.state.scoringAreas.paths.free).toContainEqual(
+        expect.objectContaining({ id: state.activePath.id }),
+      );
+      expect(result.events).toContainEqual({
+        type: "pathActivated",
+        pathId: replacement,
+        replacedPathId: state.activePath.id,
+      });
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("chooses a next-higher path and rejects paths with the wrong number", () => {
+    const state = createGame("next-higher-path");
+    const nextPath = eligiblePathsByNumber(state, 2)[0];
+    const wrongPath = eligiblePathsByNumber(state, 3)[0];
+    expect(nextPath).toBeDefined();
+    expect(wrongPath).toBeDefined();
+    if (nextPath === undefined || wrongPath === undefined) {
+      return;
+    }
+
+    const rejected = tryActivatePathByChoice(state, wrongPath, "next-higher");
+    const accepted = tryActivatePathByChoice(state, nextPath, "next-higher");
+
+    expect(rejected).toMatchObject({
+      ok: false,
+      state,
+      violation: { code: "path-not-eligible" },
+    });
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) {
+      expect(accepted.state.activePath?.id).toBe(nextPath);
+      expect(accepted.state.currentPathNumber).toBe(2);
+      expect(assertGameInvariants(accepted.state)).toEqual([]);
+    }
+  });
+
+  it("rejects a choice when no eligible same-number path remains", () => {
+    const state = createGame("no-same-number-path");
+    const onlyCurrentNumber = {
+      ...state,
+      pathDeck: state.pathDeck.filter((id) => pathNumber(id) !== 1),
+    };
+
+    const result = tryActivatePathByChoice(
+      onlyCurrentNumber,
+      state.pathDeck[0] ?? "missing",
+      "same-number",
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      state: onlyCurrentNumber,
+      violation: { code: "no-eligible-path" },
+    });
+  });
+
+  it("handles next-higher activation of path 9 as the final path", () => {
+    const base = createGame("final-path");
+    const path8 = pathDefinitions.find((path) => path.pathNumber === 8);
+    const path9 = pathDefinitions.find((path) => path.pathNumber === 9);
+    expect(path8).toBeDefined();
+    expect(path9).toBeDefined();
+    if (path8 === undefined || path9 === undefined) {
+      return;
+    }
+    const state = {
+      ...base,
+      currentPathNumber: 8,
+      activePath: {
+        id: path8.id,
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      pathDeck: [path9.id],
+      activatedPaths: [path8.id],
+    };
+
+    const activated = tryActivatePathByChoice(state, path9.id, "next-higher");
+
+    expect(activated.ok).toBe(true);
+    if (activated.ok) {
+      expect(activated.state.currentPathNumber).toBe(9);
+      const finished = resolveCombat(activated.state);
+      expect(finished.phase).toBe("gameOver");
+      expect(finished.activePath).toBeNull();
+      expect(assertGameInvariants(finished)).toEqual([]);
+    }
   });
 });
 

@@ -65,7 +65,7 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "location-activated-path-history",
     category: "location",
     title: "Specific paths cannot be activated more than once per game.",
-    status: "scaffolded",
+    status: "implemented",
     sources: ["rules:116-121", "bgg:3021148", "bgg:3121693"],
   },
   {

@@ -15,6 +15,7 @@ import type {
   Faction,
   GameEvent,
   GameState,
+  PathActivationChoice,
   Phase,
   PendingDecision,
   PlayDestination,
@@ -701,7 +702,11 @@ export function addActivePathDefenseTokens(state: GameState, count: number): Gam
 
 export function activatePathById(state: GameState, pathId: string): GameState | null {
   const path = pathById.get(pathId);
-  if (path === undefined || state.activatedPaths.includes(pathId)) {
+  if (
+    path === undefined ||
+    state.activatedPaths.includes(pathId) ||
+    !state.pathDeck.includes(pathId)
+  ) {
     return null;
   }
   let nextState = state.activePath === null ? state : scorePath(state, state.activePath);
@@ -710,11 +715,81 @@ export function activatePathById(state: GameState, pathId: string): GameState | 
     {
       ...nextState,
       activePath: { id: pathId, cards: [], attackTokens: 0, defenseTokens: 0 },
+      currentPathNumber: path.pathNumber,
       pathDeck: nextState.pathDeck.filter((id) => id !== pathId),
       activatedPaths: [...nextState.activatedPaths, pathId],
     },
     `Activated ${path.title}.`,
   );
+}
+
+export function tryActivatePathByChoice(
+  state: GameState,
+  pathId: string,
+  choice: PathActivationChoice,
+): CommandResult {
+  const activePathId = state.activePath?.id;
+  if (activePathId === undefined) {
+    return rejected(state, {
+      code: "no-active-path",
+      message: "A path-choice effect requires an active path.",
+      source: "rules:location-step",
+    });
+  }
+  const activePath = pathById.get(activePathId);
+  if (activePath === undefined) {
+    return rejected(state, {
+      code: "unknown-path",
+      message: `The active path ${activePathId} is not defined.`,
+      source: "reference:paths",
+    });
+  }
+  if (!pathById.has(pathId)) {
+    return rejected(state, {
+      code: "unknown-path",
+      message: `Path ${pathId} is not defined.`,
+      source: "reference:paths",
+    });
+  }
+  if (state.activatedPaths.includes(pathId)) {
+    return rejected(state, {
+      code: "path-already-activated",
+      message: "A specific path cannot be activated more than once per game.",
+      source: "rules:location-step",
+    });
+  }
+
+  const requiredNumber =
+    choice === "same-number"
+      ? activePath.pathNumber
+      : activePath.pathNumber + 1;
+  const eligible = eligiblePathsByNumber(state, requiredNumber);
+  if (eligible.length === 0) {
+    return rejected(state, {
+      code: "no-eligible-path",
+      message: `No unactivated path ${requiredNumber} remains available.`,
+      source: "rules:location-step",
+    });
+  }
+  if (!eligible.includes(pathId)) {
+    return rejected(state, {
+      code: "path-not-eligible",
+      message: `That path is not eligible for a ${choice} activation.`,
+      source: "rules:location-step",
+    });
+  }
+
+  const nextState = activatePathById(state, pathId);
+  if (nextState === null) {
+    return rejected(state, {
+      code: "path-not-eligible",
+      message: "That path is no longer available for activation.",
+      source: "rules:location-step",
+    });
+  }
+  return accepted(nextState, [
+    { type: "pathActivated", pathId, replacedPathId: activePathId },
+  ]);
 }
 
 export function eligiblePathsByNumber(

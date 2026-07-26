@@ -41,10 +41,10 @@ state after PR #22 and PR #23.
 - [x] Randomly choose later paths among the next path number.
 - [ ] Let card text choose eligible same-number paths.
 - [ ] Let card text choose eligible next-higher paths.
-- [ ] Prevent activating a specific path more than once per game.
-- [ ] Resolve current path combat before replacing active path.
-- [ ] Handle path 9 activation and final path edge cases.
-- [ ] Handle no eligible path as a rejected action or explicit no-op.
+- [x] Prevent activating a specific path more than once per game.
+- [x] Resolve current path combat before replacing active path.
+- [x] Handle path 9 activation and final path edge cases.
+- [x] Handle no eligible path as a rejected action or explicit no-op.
 
 ## Location Text Effects
 

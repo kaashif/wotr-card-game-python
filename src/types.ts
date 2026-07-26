@@ -31,6 +31,8 @@ export type PlayDestination = "reserve" | "battleground" | "path";
 
 export type ForsakeSource = "hand" | "reserve" | "draw";
 
+export type PathActivationChoice = "same-number" | "next-higher";
+
 export interface CardDefinition {
   readonly id: string;
   readonly title: string;
@@ -190,6 +192,7 @@ export type GameEvent =
   | { readonly type: "ringTokenUsed"; readonly playerId: PlayerId }
   | { readonly type: "winnowed"; readonly playerId: PlayerId; readonly cards: readonly string[] }
   | { readonly type: "roundStarted"; readonly round: number; readonly pathId: string | null; readonly battlegroundId: string | null }
+  | { readonly type: "pathActivated"; readonly pathId: string; readonly replacedPathId: string | null }
   | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
@@ -234,7 +237,12 @@ export type RuleViolationCode =
   | "reserve-card-played-this-round"
   | "repeat-character-or-item-this-round"
   | "pass-not-allowed"
-  | "insufficient-hand-cards";
+  | "insufficient-hand-cards"
+  | "no-active-path"
+  | "unknown-path"
+  | "path-already-activated"
+  | "path-not-eligible"
+  | "no-eligible-path";
 
 export interface RuleViolation {
   readonly code: RuleViolationCode;
