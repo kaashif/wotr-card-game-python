@@ -272,6 +272,46 @@ describe("game engine", () => {
     }
   });
 
+  it("blocks Mouth of Sauron and Lidless Eye from paths while a Shadow battleground is active", () => {
+    const playerId: PlayerId = "witchKing";
+    const mouth = "witchKing-mouth-of-sauron-154-1";
+    const eye = "witchKing-the-lidless-eye-156-1";
+    const base = setPlayerZones(createGame("shadow-path-restrictions"), playerId, {
+      hand: [mouth, eye],
+      reserve: [],
+    });
+    const shadowBattleground = {
+      ...base,
+      activeBattleground: {
+        id: "moria",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+      additionalActiveBattlegrounds: [],
+      activePath: {
+        id: "orodruin",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    expect(canPlayTo(shadowBattleground, playerId, mouth, "path")).toBe(false);
+    expect(canPlayTo(shadowBattleground, playerId, eye, "path")).toBe(false);
+
+    const freeBattleground = {
+      ...shadowBattleground,
+      activeBattleground: {
+        ...shadowBattleground.activeBattleground,
+        id: "helms-deep",
+      },
+    };
+
+    expect(canPlayTo(freeBattleground, playerId, mouth, "path")).toBe(true);
+    expect(canPlayTo(freeBattleground, playerId, eye, "path")).toBe(true);
+  });
+
   it("winnows two hand cards, honoring elimination replacements, and draws one", () => {
     const playerId: PlayerId = "frodo";
     const first = "frodo-frodo-baggins-69-1";

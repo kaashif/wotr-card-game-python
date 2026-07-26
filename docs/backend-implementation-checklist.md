@@ -89,8 +89,8 @@ state after PR #22 and PR #23.
 - [ ] Implement Boromir forsake timing.
 - [ ] Implement Palantir edge cases.
 - [ ] Implement draw/play/cycle-rest cards.
-- [ ] Implement Mouth of Sauron restrictions.
-- [ ] Implement Lidless Eye restrictions.
+- [x] Implement Mouth of Sauron restrictions.
+- [x] Implement Lidless Eye restrictions.
 - [ ] Implement Ringwraiths Are Abroad.
 - [ ] Implement Day Without Dawn.
 - [ ] Implement all remaining named card text from `docs/rules-edge-case-plan.md`.

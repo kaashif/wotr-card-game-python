@@ -33,6 +33,10 @@ const setupCycleCount = 2;
 const handLimit = 6;
 const baseCarryoverLimit = 2;
 const bowOfGaladhrimId = "bow-of-galadhrim-57";
+const shadowBattlegroundPathRestrictedCards = new Set([
+  "mouth-of-sauron-154",
+  "the-lidless-eye-156",
+]);
 const weaponCardIds = new Set([
   "anduril-46",
   "blade-of-westernesse-47",
@@ -1887,6 +1891,10 @@ export function canPlayTo(
   return (
     path !== null &&
     cardDef.type === "character" &&
+    !(
+      shadowBattlegroundPathRestrictedCards.has(cardDef.id) &&
+      hasActiveShadowBattleground(state)
+    ) &&
     cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
   );
 }
@@ -1911,6 +1919,10 @@ export function canMoveTo(
     return (
       path !== null &&
       cardDef.type === "character" &&
+      !(
+        shadowBattlegroundPathRestrictedCards.has(cardDef.id) &&
+        hasActiveShadowBattleground(state)
+      ) &&
       cardDef.allowedPaths.includes(pathById.get(path.id)?.pathNumber ?? -1)
     );
   }
@@ -2251,6 +2263,13 @@ function activeBattlegroundIds(state: GameState): readonly string[] {
       (battleground) => battleground.id,
     ),
   ];
+}
+
+function hasActiveShadowBattleground(state: GameState): boolean {
+  return activeBattlegroundIds(state).some(
+    (battlegroundId) =>
+      battlegroundById.get(battlegroundId)?.side === "shadow",
+  );
 }
 
 function advanceBattlegroundQueue(state: GameState): GameState {
@@ -2864,7 +2883,10 @@ function carryoverLimit(state: GameState, playerId: PlayerId): number {
     const text = normalizeName(
       getCardDefinition(getCard(state, instanceId).cardId).text,
     );
-    return text.includes("increase your carryover limit by 1");
+    return (
+      text.includes("increase your carryover limit by 1") ||
+      text.includes("increase your col by 1")
+    );
   }).length;
   return baseCarryoverLimit + modifiers;
 }
