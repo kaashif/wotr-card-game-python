@@ -125,6 +125,7 @@ export function createGame(seed = String(Date.now())): GameState {
     ),
     activatedPaths: [],
     activeBattleground: null,
+    additionalActiveBattlegrounds: [],
     activePath: null,
     players: playerStates,
     cards: instances,
@@ -703,6 +704,124 @@ export function addActivePathDefenseTokens(state: GameState, count: number): Gam
   };
 }
 
+export function tryActivateBattlegroundFromDeck(
+  state: GameState,
+  battlegroundId: string,
+): CommandResult {
+  const battleground = battlegroundById.get(battlegroundId);
+  if (battleground === undefined) {
+    return rejected(state, {
+      code: "unknown-battleground",
+      message: `Battleground ${battlegroundId} is not defined.`,
+      source: "reference:battlegrounds",
+    });
+  }
+  const deckSide = (["free", "shadow"] as const).find((side) =>
+    state.battlegroundDecks[side].includes(battlegroundId),
+  );
+  if (
+    deckSide === undefined ||
+    activeBattlegroundIds(state).includes(battlegroundId)
+  ) {
+    return rejected(state, {
+      code: "battleground-not-available",
+      message: "That battleground is not available in a battleground deck.",
+      source: "rules:location-step",
+    });
+  }
+
+  const remainingDeck = state.battlegroundDecks[deckSide].filter(
+    (id) => id !== battlegroundId,
+  );
+  const nextState = appendActiveBattleground(
+    {
+      ...state,
+      battlegroundDecks: {
+        ...state.battlegroundDecks,
+        [deckSide]: shuffle(
+          remainingDeck,
+          mulberry32(
+            hashSeed(
+              `${state.seed}:battleground-search:${state.eventLog.length}:${battlegroundId}`,
+            ),
+          ),
+        ),
+      },
+    },
+    createActiveBattleground(battlegroundId),
+  );
+  return accepted(
+    addLog(nextState, `Activated ${battleground.title} from the ${deckSide} deck.`),
+    [
+      {
+        type: "battlegroundActivated",
+        battlegroundId,
+        reactivated: false,
+        ignorePrintedDefense: false,
+      },
+    ],
+  );
+}
+
+export function tryReactivateBattleground(
+  state: GameState,
+  battlegroundId: string,
+  activatingSide: Side,
+): CommandResult {
+  const battleground = battlegroundById.get(battlegroundId);
+  if (battleground === undefined) {
+    return rejected(state, {
+      code: "unknown-battleground",
+      message: `Battleground ${battlegroundId} is not defined.`,
+      source: "reference:battlegrounds",
+    });
+  }
+  const scoringSide = (["free", "shadow"] as const).find((side) =>
+    state.scoringAreas.battlegrounds[side].includes(battlegroundId),
+  );
+  if (
+    scoringSide === undefined ||
+    activeBattlegroundIds(state).includes(battlegroundId)
+  ) {
+    return rejected(state, {
+      code: "battleground-not-scored",
+      message: "Only a battleground in a scoring area can be reactivated.",
+      source: "rules:reactivation",
+    });
+  }
+
+  const ignorePrintedDefense = scoringSide !== activatingSide;
+  const nextState = appendActiveBattleground(
+    {
+      ...state,
+      scoringAreas: {
+        ...state.scoringAreas,
+        battlegrounds: {
+          ...state.scoringAreas.battlegrounds,
+          [scoringSide]: state.scoringAreas.battlegrounds[scoringSide].filter(
+            (id) => id !== battlegroundId,
+          ),
+        },
+      },
+    },
+    {
+      ...createActiveBattleground(battlegroundId),
+      ignorePrintedDefense,
+    },
+  );
+  return accepted(
+    addLog(nextState, `Reactivated ${battleground.title} from the ${scoringSide} scoring area.`),
+    [
+      {
+        type: "battlegroundActivated",
+        battlegroundId,
+        reactivated: true,
+        ignorePrintedDefense,
+      },
+    ],
+  );
+}
+
 export function activatePathById(state: GameState, pathId: string): GameState | null {
   const path = pathById.get(pathId);
   if (
@@ -1161,7 +1280,7 @@ export function tryResolveCombatLossDecision(
     nextState = resolveCombat(
       decision.locationType === "path"
         ? { ...nextState, activePath: null }
-        : { ...nextState, activeBattleground: null },
+        : advanceBattlegroundQueue(nextState),
     );
   }
   return { ok: true, state: nextState, events };
@@ -1182,6 +1301,10 @@ export function resolveCombat(state: GameState): GameState {
     if (nextState.pendingDecisions.length > state.pendingDecisions.length) {
       return nextState;
     }
+    nextState = advanceBattlegroundQueue(nextState);
+    if (nextState.activeBattleground !== null) {
+      return resolveCombat(nextState);
+    }
   }
 
   const path = nextState.activePath;
@@ -1195,7 +1318,13 @@ export function resolveCombat(state: GameState): GameState {
 
   if (nextState.currentPathNumber >= 9) {
     return addLog(
-      { ...nextState, phase: "gameOver", activeBattleground: null, activePath: null },
+      {
+        ...nextState,
+        phase: "gameOver",
+        activeBattleground: null,
+        additionalActiveBattlegrounds: [],
+        activePath: null,
+      },
       "Game over after Mount Doom.",
     );
   }
@@ -1207,6 +1336,7 @@ export function resolveCombat(state: GameState): GameState {
     round: nextState.round + 1,
     currentPathNumber: nextState.currentPathNumber + 1,
     activeBattleground: null,
+    additionalActiveBattlegrounds: [],
     activePath: null,
     players: mapPlayers(nextState.players, (player) => ({
       ...player,
@@ -1244,6 +1374,9 @@ export function validateState(state: GameState): readonly string[] {
       ];
     }),
     state.activeBattleground?.cards ?? [],
+    ...state.additionalActiveBattlegrounds.map(
+      (battleground) => battleground.cards,
+    ),
     state.activePath?.cards ?? [],
     ...Object.values(state.attachments),
   ];
@@ -1270,6 +1403,11 @@ export function validateState(state: GameState): readonly string[] {
     const battleground = battlegroundById.get(state.activeBattleground.id);
     if (battleground === undefined) {
       errors.push(`Unknown active battleground: ${state.activeBattleground.id}`);
+    }
+  }
+  for (const battleground of state.additionalActiveBattlegrounds) {
+    if (!battlegroundById.has(battleground.id)) {
+      errors.push(`Unknown additional active battleground: ${battleground.id}`);
     }
   }
 
@@ -1447,6 +1585,7 @@ function startRound(state: GameState): GameState {
           ? state.activatedPaths
           : [...state.activatedPaths, nextPathId],
       activeBattleground: nextBattleground,
+      additionalActiveBattlegrounds: [],
       activePath: nextPath,
       roundMemory: { playedToReserve: [], playedCharacterOrItemCards: [] },
       eventLog: [
@@ -1468,6 +1607,55 @@ function startRound(state: GameState): GameState {
   );
 }
 
+function createActiveBattleground(
+  battlegroundId: string,
+): ActiveBattleground {
+  return {
+    id: battlegroundId,
+    cards: [],
+    attackTokens: 0,
+    defenseTokens: 0,
+    ignorePrintedDefense: false,
+  };
+}
+
+function appendActiveBattleground(
+  state: GameState,
+  battleground: ActiveBattleground,
+): GameState {
+  if (state.activeBattleground === null) {
+    return { ...state, activeBattleground: battleground };
+  }
+  return {
+    ...state,
+    additionalActiveBattlegrounds: [
+      ...state.additionalActiveBattlegrounds,
+      battleground,
+    ],
+  };
+}
+
+function activeBattlegroundIds(state: GameState): readonly string[] {
+  return [
+    ...(state.activeBattleground === null
+      ? []
+      : [state.activeBattleground.id]),
+    ...state.additionalActiveBattlegrounds.map(
+      (battleground) => battleground.id,
+    ),
+  ];
+}
+
+function advanceBattlegroundQueue(state: GameState): GameState {
+  const [nextBattleground, ...remainingBattlegrounds] =
+    state.additionalActiveBattlegrounds;
+  return {
+    ...state,
+    activeBattleground: nextBattleground ?? null,
+    additionalActiveBattlegrounds: remainingBattlegrounds,
+  };
+}
+
 function scoreBattleground(
   state: GameState,
   battleground: ActiveBattleground,
@@ -1486,14 +1674,17 @@ function scoreBattleground(
   const attack = attackingCards
     .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
     .reduce((sum, card) => sum + card.battlegroundAttack + card.leadershipAttack, 0);
+  const printedDefense = battleground.ignorePrintedDefense === true
+    ? 0
+    : definition.defenseIcons;
   const defense =
-    definition.defenseIcons +
+    printedDefense +
     battleground.defenseTokens +
     defendingCards
       .map((instanceId) => getCardDefinition(getCard(state, instanceId).cardId))
       .reduce((sum, card) => sum + card.battlegroundDefense + card.leadershipDefense, 0);
   const winner: Side = attack > defense ? oppositeSide(definition.side) : definition.side;
-  const locationDefense = definition.defenseIcons + battleground.defenseTokens;
+  const locationDefense = printedDefense + battleground.defenseTokens;
   const remainingAttack = Math.max(0, attack - locationDefense);
   const decision = {
     type: "combatLosses",
@@ -1791,6 +1982,12 @@ function removeFromSharedPlayZones(state: GameState, instanceId: string): GameSt
             ...state.activeBattleground,
             cards: removeOne(state.activeBattleground.cards, instanceId),
           },
+    additionalActiveBattlegrounds: state.additionalActiveBattlegrounds.map(
+      (battleground) => ({
+        ...battleground,
+        cards: removeOne(battleground.cards, instanceId),
+      }),
+    ),
     activePath:
       state.activePath === null
         ? null
@@ -1862,6 +2059,9 @@ function isInPlay(state: GameState, instanceId: string): boolean {
   return (
     Object.values(state.players).some((player) => player.reserve.includes(instanceId)) ||
     (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
+    state.additionalActiveBattlegrounds.some((battleground) =>
+      battleground.cards.includes(instanceId)
+    ) ||
     (state.activePath?.cards.includes(instanceId) ?? false)
   );
 }
@@ -1916,7 +2116,12 @@ function isCardInSearchZones(
       case "reserve":
         return player[zone].includes(instanceId);
       case "battleground":
-        return state.activeBattleground?.cards.includes(instanceId) ?? false;
+        return (
+          (state.activeBattleground?.cards.includes(instanceId) ?? false) ||
+          state.additionalActiveBattlegrounds.some((battleground) =>
+            battleground.cards.includes(instanceId)
+          )
+        );
       case "path":
         return state.activePath?.cards.includes(instanceId) ?? false;
     }

@@ -25,15 +25,15 @@ state after PR #22 and PR #23.
 
 ## Location Activation
 
-- [ ] Activate battlegrounds from the correct side deck.
+- [x] Activate battlegrounds from the correct side deck.
 - [x] Fall back to the other side deck when the starting side deck is empty.
 - [x] Handle no-battleground activation when both decks are empty.
-- [ ] Activate specific battlegrounds from a deck by card/location text.
-- [ ] Reshuffle a battleground deck after search/take.
-- [ ] Reactivate battlegrounds from scoring areas, not decks.
+- [x] Activate specific battlegrounds from a deck by card/location text.
+- [x] Reshuffle a battleground deck after search/take.
+- [x] Reactivate battlegrounds from scoring areas, not decks.
 - [ ] Re-run activation text for reactivated battlegrounds.
-- [ ] Implement reactivated battleground defense-ignore rule.
-- [ ] Support multiple active battlegrounds.
+- [x] Implement reactivated battleground defense-ignore rule.
+- [x] Support multiple active battlegrounds.
 
 ## Path Activation And Replacement
 

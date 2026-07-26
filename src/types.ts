@@ -100,6 +100,7 @@ export interface ActiveBattleground {
   readonly cards: readonly string[];
   readonly attackTokens: number;
   readonly defenseTokens: number;
+  readonly ignorePrintedDefense?: boolean;
 }
 
 export interface PathDefinition {
@@ -207,6 +208,7 @@ export type GameEvent =
   | { readonly type: "winnowed"; readonly playerId: PlayerId; readonly cards: readonly string[] }
   | { readonly type: "roundStarted"; readonly round: number; readonly pathId: string | null; readonly battlegroundId: string | null }
   | { readonly type: "pathActivated"; readonly pathId: string; readonly replacedPathId: string | null }
+  | { readonly type: "battlegroundActivated"; readonly battlegroundId: string; readonly reactivated: boolean; readonly ignorePrintedDefense: boolean }
   | { readonly type: "pathScored"; readonly pathId: string; readonly side: Side; readonly points: number; readonly corruption: number }
   | { readonly type: "battlegroundScored"; readonly battlegroundId: string; readonly side: Side; readonly points: number }
   | { readonly type: "corruptionChanged"; readonly delta: number; readonly total: number }
@@ -224,6 +226,7 @@ export interface GameState {
   readonly pathDeck: readonly string[];
   readonly activatedPaths: readonly string[];
   readonly activeBattleground: ActiveBattleground | null;
+  readonly additionalActiveBattlegrounds: readonly ActiveBattleground[];
   readonly activePath: ActivePath | null;
   readonly players: Readonly<Record<PlayerId, PlayerState>>;
   readonly cards: Readonly<Record<string, CardInstance>>;
@@ -263,7 +266,10 @@ export type RuleViolationCode =
   | "wrong-decision-type"
   | "wrong-decision-player"
   | "invalid-decision-choice"
-  | "insufficient-decision-choices";
+  | "insufficient-decision-choices"
+  | "unknown-battleground"
+  | "battleground-not-available"
+  | "battleground-not-scored";
 
 export interface RuleViolation {
   readonly code: RuleViolationCode;

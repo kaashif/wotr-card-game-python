@@ -100,7 +100,7 @@ export const edgeCaseRegistry: readonly EdgeCaseRecord[] = [
     id: "location-reactivate-battleground",
     category: "location",
     title: "Reactivation takes battleground from scoring area and can ignore defense.",
-    status: "blocked",
+    status: "implemented",
     sources: ["rules:99-101", "rules:302-304", "bgg:3017468", "bgg:3107840"],
   },
   {

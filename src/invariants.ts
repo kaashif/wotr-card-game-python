@@ -76,6 +76,32 @@ export function assertGameInvariants(state: GameState): readonly string[] {
   if (new Set(scoredBattlegrounds).size !== scoredBattlegrounds.length) {
     errors.push("A battleground appears in more than one scoring area.");
   }
+  const activeBattlegrounds = [
+    ...(state.activeBattleground === null
+      ? []
+      : [state.activeBattleground.id]),
+    ...state.additionalActiveBattlegrounds.map(
+      (battleground) => battleground.id,
+    ),
+  ];
+  if (new Set(activeBattlegrounds).size !== activeBattlegrounds.length) {
+    errors.push("A battleground is active more than once.");
+  }
+  for (const battlegroundId of activeBattlegrounds) {
+    if (scoredBattlegrounds.includes(battlegroundId)) {
+      errors.push(
+        `Active battleground ${battlegroundId} is still in a scoring area.`,
+      );
+    }
+    if (
+      state.battlegroundDecks.free.includes(battlegroundId) ||
+      state.battlegroundDecks.shadow.includes(battlegroundId)
+    ) {
+      errors.push(
+        `Active battleground ${battlegroundId} is still in a deck.`,
+      );
+    }
+  }
 
   const scoredPaths = [
     ...state.scoringAreas.paths.free.map((path) => path.id),
@@ -129,6 +155,11 @@ function physicalCardLocations(state: GameState): ReadonlyMap<string, readonly s
   }
   for (const instanceId of state.activeBattleground?.cards ?? []) {
     add(instanceId, `battleground.${state.activeBattleground?.id ?? "unknown"}`);
+  }
+  for (const battleground of state.additionalActiveBattlegrounds) {
+    for (const instanceId of battleground.cards) {
+      add(instanceId, `battleground.${battleground.id}`);
+    }
   }
   for (const [wielderId, itemIds] of Object.entries(state.attachments)) {
     for (const itemId of itemIds) {

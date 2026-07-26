@@ -5,11 +5,28 @@ import {
   createGame,
   eligiblePathsByNumber,
   resolveCombat,
+  tryActivateBattlegroundFromDeck,
   tryActivatePathByChoice,
+  tryReactivateBattleground,
 } from "./game";
 import { assertGameInvariants } from "./invariants";
 
 describe("round location activation", () => {
+  it("uses the scheduled side's battleground deck when it has cards", () => {
+    const state = createGame("scheduled-battleground-side");
+    const battleground = battlegroundDefinitions.find(
+      (definition) => definition.id === state.activeBattleground?.id,
+    );
+
+    expect(state.round).toBe(1);
+    expect(battleground?.side).toBe("free");
+    expect(state.battlegroundDecks.shadow).toHaveLength(
+      battlegroundDefinitions.filter(
+        (definition) => definition.side === "shadow",
+      ).length,
+    );
+  });
+
   it("randomizes the first path deterministically from the path 1 cards", () => {
     const first = createGame("random-path-seed");
     const repeated = createGame("random-path-seed");
@@ -94,6 +111,110 @@ describe("round location activation", () => {
     };
 
     expect(eligiblePathsByNumber(withoutCandidate, 2)).not.toContain(candidate);
+  });
+
+  it("activates a specific battleground from a deck and reshuffles the remainder", () => {
+    const state = createGame("specific-battleground");
+    const target = state.battlegroundDecks.shadow[1];
+    expect(target).toBeDefined();
+    if (target === undefined) {
+      return;
+    }
+    const originalRemaining = state.battlegroundDecks.shadow.filter(
+      (id) => id !== target,
+    );
+
+    const result = tryActivateBattlegroundFromDeck(state, target);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.state.additionalActiveBattlegrounds.map(
+          (battleground) => battleground.id,
+        ),
+      ).toContain(target);
+      expect(result.state.battlegroundDecks.shadow).not.toContain(target);
+      expect(result.state.battlegroundDecks.shadow).not.toEqual(
+        originalRemaining,
+      );
+      expect(result.events).toContainEqual({
+        type: "battlegroundActivated",
+        battlegroundId: target,
+        reactivated: false,
+        ignorePrintedDefense: false,
+      });
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("reactivates from a scoring area and records cross-side defense ignore", () => {
+    const base = createGame("reactivate-battleground");
+    const target = base.battlegroundDecks.free[0];
+    expect(target).toBeDefined();
+    if (target === undefined) {
+      return;
+    }
+    const state = {
+      ...base,
+      battlegroundDecks: {
+        ...base.battlegroundDecks,
+        free: base.battlegroundDecks.free.filter((id) => id !== target),
+      },
+      scoringAreas: {
+        ...base.scoringAreas,
+        battlegrounds: {
+          ...base.scoringAreas.battlegrounds,
+          free: [target],
+        },
+      },
+    };
+
+    const result = tryReactivateBattleground(state, target, "shadow");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.scoringAreas.battlegrounds.free).not.toContain(target);
+      expect(result.state.additionalActiveBattlegrounds.at(-1)).toMatchObject({
+        id: target,
+        ignorePrintedDefense: true,
+      });
+      expect(result.events).toContainEqual({
+        type: "battlegroundActivated",
+        battlegroundId: target,
+        reactivated: true,
+        ignorePrintedDefense: true,
+      });
+      expect(assertGameInvariants(result.state)).toEqual([]);
+    }
+  });
+
+  it("resolves every active battleground before path combat", () => {
+    const base = createGame("multiple-battleground-combat");
+    const firstId = base.activeBattleground?.id;
+    const secondId = base.battlegroundDecks.shadow[0];
+    expect(firstId).toBeDefined();
+    expect(secondId).toBeDefined();
+    if (firstId === undefined || secondId === undefined) {
+      return;
+    }
+    const activated = tryActivateBattlegroundFromDeck(base, secondId);
+    expect(activated.ok).toBe(true);
+    if (!activated.ok) {
+      return;
+    }
+
+    const next = resolveCombat({
+      ...activated.state,
+      activePath: null,
+    });
+    const scored = [
+      ...next.scoringAreas.battlegrounds.free,
+      ...next.scoringAreas.battlegrounds.shadow,
+    ];
+
+    expect(scored).toEqual(expect.arrayContaining([firstId, secondId]));
+    expect(next.additionalActiveBattlegrounds).toEqual([]);
+    expect(assertGameInvariants(next)).toEqual([]);
   });
 
   it("chooses a different same-number path and scores the replaced path first", () => {
