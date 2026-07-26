@@ -684,14 +684,14 @@ export function forsakeCard(
     return null;
   }
   if (source === "hand" && player.hand.includes(instanceId)) {
-    return eliminateCards(state, [instanceId]);
+    return forsakeChosenCard(state, instanceId, source);
   }
   if (
     source === "reserve" &&
     (player.reserve.includes(instanceId) ||
       controlledReserveItems(state, playerId).includes(instanceId))
   ) {
-    return eliminateCards(state, [instanceId]);
+    return forsakeChosenCard(state, instanceId, source);
   }
   return null;
 }
@@ -2030,13 +2030,34 @@ function forsakeFromTopOfDeck(state: GameState, playerId: PlayerId): GameState {
   const normalizedText = normalizeName(definition.text);
   const cyclesInstead =
     normalizedText.includes("forsaken from top of the draw deck cycle instead") ||
-    normalizedText.includes("eliminated or forsaken cycle instead");
+    normalizedText.includes("eliminated or forsaken cycle instead") ||
+    normalizedText.includes("eliminated or being forsaken cycle instead");
   return cyclesInstead
     ? cycleCards(withoutTopCard, [forsaken])
     : eliminateCards(withoutTopCard, [forsaken]);
 }
 
 function eliminateCards(state: GameState, instanceIds: readonly string[]): GameState {
+  return instanceIds.reduce((nextState, instanceId) => {
+    if (!hasGeneralEliminationCycleReplacement(nextState, instanceId)) {
+      return eliminateCardsWithoutReplacement(nextState, [instanceId]);
+    }
+    const text = normalizedCardText(nextState, instanceId);
+    if (text.includes("any wielded items are eliminated")) {
+      const attachedItems = nextState.attachments[instanceId] ?? [];
+      return cycleCards(
+        eliminateCardsWithoutReplacement(nextState, attachedItems),
+        [instanceId],
+      );
+    }
+    return cycleCards(nextState, [instanceId]);
+  }, state);
+}
+
+function eliminateCardsWithoutReplacement(
+  state: GameState,
+  instanceIds: readonly string[],
+): GameState {
   const cardsToEliminate = expandWithAttachedItems(state, instanceIds);
   return cardsToEliminate.reduce((nextState, instanceId) => {
     const owner = findOwner(nextState, instanceId);
@@ -2059,6 +2080,37 @@ function eliminateCards(state: GameState, instanceIds: readonly string[]): GameS
       ),
     );
   }, removeAttachmentLinks(state, cardsToEliminate));
+}
+
+function forsakeChosenCard(
+  state: GameState,
+  instanceId: string,
+  source: "hand" | "reserve",
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  const reserveForsakeReplacement =
+    source === "reserve" &&
+    text.includes("if in reserve and when forsaken cycle instead");
+  return reserveForsakeReplacement
+    ? cycleCards(state, [instanceId])
+    : eliminateCards(state, [instanceId]);
+}
+
+function hasGeneralEliminationCycleReplacement(
+  state: GameState,
+  instanceId: string,
+): boolean {
+  const text = normalizedCardText(state, instanceId);
+  return (
+    text.includes("eliminated or being forsaken cycle instead") ||
+    text.includes("eliminated or forsaken cycle instead")
+  );
+}
+
+function normalizedCardText(state: GameState, instanceId: string): string {
+  return normalizeName(
+    getCardDefinition(getCard(state, instanceId).cardId).text,
+  );
 }
 
 function cycleCards(state: GameState, instanceIds: readonly string[]): GameState {

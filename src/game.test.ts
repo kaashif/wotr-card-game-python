@@ -270,7 +270,7 @@ describe("game engine", () => {
     }
   });
 
-  it("winnows by eliminating two hand cards and drawing one", () => {
+  it("winnows two hand cards, honoring elimination replacements, and draws one", () => {
     const playerId: PlayerId = "frodo";
     const first = "frodo-frodo-baggins-69-1";
     const second = "frodo-sam-gamgee-72-1";
@@ -288,9 +288,9 @@ describe("game engine", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.state.players[playerId].eliminated).toEqual(
-        expect.arrayContaining([first, second]),
-      );
+      expect(result.state.players[playerId].cycle).toContain(first);
+      expect(result.state.players[playerId].eliminated).toContain(second);
+      expect(result.state.players[playerId].eliminated).not.toContain(first);
       expect(result.state.players[playerId].hand).toContain(drawn);
       expect(validateState(result.state)).toEqual([]);
     }

@@ -83,6 +83,58 @@ describe("passive card rules", () => {
       expect(assertGameInvariants(next)).toEqual([]);
     }
   });
+
+  it("cycles cards with general forsake replacement text", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("chosen-forsake-replacement");
+    const replacement = ownedCardMatching(
+      base,
+      playerId,
+      "if eliminated or being forsaken cycle instead",
+    );
+    expect(replacement).toBeDefined();
+    if (replacement === undefined) {
+      return;
+    }
+    const state = setPlayerZones(base, playerId, {
+      hand: [replacement],
+      cycle: [],
+    });
+
+    const next = forsakeCard(state, playerId, "hand", replacement);
+
+    expect(next?.players[playerId].cycle).toContain(replacement);
+    expect(next?.players[playerId].eliminated).not.toContain(replacement);
+    if (next !== null) {
+      expect(assertGameInvariants(next)).toEqual([]);
+    }
+  });
+
+  it("applies reserve-only forsake replacements", () => {
+    const playerId: PlayerId = "frodo";
+    const base = createGame("reserve-forsake-replacement");
+    const replacement = ownedCardMatching(
+      base,
+      playerId,
+      "if in reserve and when forsaken cycle instead",
+    );
+    expect(replacement).toBeDefined();
+    if (replacement === undefined) {
+      return;
+    }
+    const state = setPlayerZones(base, playerId, {
+      reserve: [replacement],
+      cycle: [],
+    });
+
+    const next = forsakeCard(state, playerId, "reserve", replacement);
+
+    expect(next?.players[playerId].cycle).toContain(replacement);
+    expect(next?.players[playerId].eliminated).not.toContain(replacement);
+    if (next !== null) {
+      expect(assertGameInvariants(next)).toEqual([]);
+    }
+  });
 });
 
 function ownedCardMatching(
