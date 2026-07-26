@@ -84,9 +84,9 @@ state after PR #22 and PR #23.
 - [ ] Implement Anduril battleground reactivation flow.
 - [ ] Implement The Black Captain battleground reactivation flow.
 - [ ] Implement Threats and Promises battleground reactivation flow.
-- [ ] Implement Balrog timing.
-- [ ] Implement Shelob timing.
-- [ ] Implement Boromir forsake timing.
+- [x] Implement Balrog timing.
+- [x] Implement Shelob timing.
+- [x] Implement Boromir forsake timing.
 - [ ] Implement Palantir edge cases.
 - [ ] Implement draw/play/cycle-rest cards.
 - [x] Implement Mouth of Sauron restrictions.

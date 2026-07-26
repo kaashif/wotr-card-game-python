@@ -394,6 +394,90 @@ describe("game engine", () => {
     }
   });
 
+  it("queues Boromir's mandatory forsake after playing him to a path", () => {
+    const state = {
+      ...setPlayerZones(createGame("boromir-path-forsake"), "aragorn", {
+        hand: ["aragorn-boromir-39-1", "aragorn-denethor-40-1"],
+        draw: ["aragorn-faramir-41-1"],
+        cycle: [],
+      }),
+      activePlayer: "aragorn" as const,
+      pendingDecisions: [],
+      activePath: {
+        id: "imladris-rivendel",
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    const result = tryPlayCard(
+      state,
+      "aragorn",
+      "aragorn-boromir-39-1",
+      "path",
+      "aragorn-denethor-40-1",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.pendingDecisions[0]).toMatchObject({
+        type: "forsake",
+        playerId: "aragorn",
+        minimum: 1,
+        source: "card:boromir-39",
+      });
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
+  it.each([
+    {
+      name: "Balrog",
+      card: "saruman-balrog-118-1",
+      path: "caradhras",
+    },
+    {
+      name: "Shelob",
+      card: "saruman-shelob-123-1",
+      path: "orodruin",
+    },
+  ])("queues both Free Peoples forsakes when $name moves", ({ card, path }) => {
+    const state = {
+      ...setPlayerZones(createGame(`move-${card}`), "saruman", {
+        reserve: [card],
+      }),
+      activePlayer: "saruman" as const,
+      pendingDecisions: [],
+      roundMemory: {
+        playedToReserve: [],
+        playedCharacterOrItemCards: [],
+      },
+      activePath: {
+        id: path,
+        cards: [],
+        attackTokens: 0,
+        defenseTokens: 0,
+      },
+    };
+
+    const result = tryMoveFromReserve(
+      state,
+      "saruman",
+      card,
+      "path",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.pendingDecisions).toMatchObject([
+        { type: "forsake", playerId: "frodo", minimum: 1 },
+        { type: "forsake", playerId: "aragorn", minimum: 1 },
+      ]);
+      expect(validateState(result.state)).toEqual([]);
+    }
+  });
+
   it("winnows two hand cards, honoring elimination replacements, and draws one", () => {
     const playerId: PlayerId = "frodo";
     const first = "frodo-frodo-baggins-69-1";

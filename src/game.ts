@@ -459,7 +459,12 @@ export function playCard(
   }
 
   return addLog(
-    applyWhenPlayedDrawEffects(nextState, playerId, instanceId),
+    applyPlayedOrMovedForsakeEffects(
+      applyWhenPlayedDrawEffects(nextState, playerId, instanceId),
+      playerId,
+      instanceId,
+      destination,
+    ),
     `${players[playerId].name} played ${cardDef.title} to ${destination}.`,
   );
 }
@@ -729,9 +734,15 @@ export function tryMoveFromReserve(
       source: "rules:222-227",
     });
   }
-  return accepted(moveFromReserve(state, playerId, instanceId, destination), [
+  const nextState = moveFromReserve(state, playerId, instanceId, destination);
+  const finalState = appendEvents(nextState, [
     { type: "cardMoved", playerId, cardId: instanceId, destination },
   ]);
+  return {
+    ok: true,
+    state: finalState,
+    events: finalState.eventLog.slice(state.eventLog.length),
+  };
 }
 
 export function moveFromReserve(
@@ -771,7 +782,12 @@ export function moveFromReserve(
   }
 
   return addLog(
-    nextState,
+    applyPlayedOrMovedForsakeEffects(
+      nextState,
+      playerId,
+      instanceId,
+      destination,
+    ),
     `${players[playerId].name} moved ${cardDef.title} to ${destination}.`,
   );
 }
@@ -2508,6 +2524,48 @@ function applyWhenPlayedDrawEffects(
   }, state);
 }
 
+function applyPlayedOrMovedForsakeEffects(
+  state: GameState,
+  playerId: PlayerId,
+  instanceId: string,
+  destination: PlayDestination,
+): GameState {
+  const text = normalizedCardText(state, instanceId);
+  if (
+    (destination === "path" || destination === "battleground") &&
+    text.includes(
+      "when played or moved to a path or battleground each fp player must forsake 1 card",
+    )
+  ) {
+    return (["frodo", "aragorn"] as const).reduce(
+      (nextState, forsakingPlayer) =>
+        enqueuePendingDecision(nextState, {
+          type: "forsake",
+          playerId: forsakingPlayer,
+          minimum: 1,
+          reason: `${getCardDefinition(getCard(state, instanceId).cardId).title} played or moved`,
+          source: `card:${getCard(state, instanceId).cardId}`,
+        }),
+      state,
+    );
+  }
+  if (
+    destination === "path" &&
+    text.includes(
+      "when played or moved to a path you must forsake 1 card",
+    )
+  ) {
+    return enqueuePendingDecision(state, {
+      type: "forsake",
+      playerId,
+      minimum: 1,
+      reason: `${getCardDefinition(getCard(state, instanceId).cardId).title} played or moved`,
+      source: `card:${getCard(state, instanceId).cardId}`,
+    });
+  }
+  return state;
+}
+
 export function drawCountForPlayer(
   state: GameState,
   playerId: PlayerId,
@@ -3110,7 +3168,12 @@ function playDrawnCardWithoutCost(
     nextState = rememberCharacterOrItemPlayed(nextState, card.id);
   }
   return addLog(
-    applyWhenPlayedDrawEffects(nextState, playerId, play.cardId),
+    applyPlayedOrMovedForsakeEffects(
+      applyWhenPlayedDrawEffects(nextState, playerId, play.cardId),
+      playerId,
+      play.cardId,
+      play.destination,
+    ),
     `${players[playerId].name} played ${card.title} to ${play.destination} from a card-effect draw.`,
   );
 }
