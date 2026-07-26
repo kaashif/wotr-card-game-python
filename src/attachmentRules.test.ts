@@ -7,7 +7,9 @@ import {
   getPathDefinition,
   moveFromReserve,
   resolveCombat,
+  tryForsake,
 } from "./game";
+import { getLegalActions } from "./legalActions";
 import { assertGameInvariants } from "./invariants";
 import type { GameState, PlayerId } from "./types";
 
@@ -112,6 +114,44 @@ describe("attachment ownership and movement", () => {
 
     expect(canAttachItemTo(state, itemOwner, syntheticBow, legolas)).toBe(false);
     expect(canAttachItemTo(state, itemOwner, cloakForElf, legolas)).toBe(true);
+  });
+
+  it("lets a reserve wielder's controller forsake a teammate-owned item", () => {
+    const attached = attachItem(
+      arrangeAttachmentCards(createGame("controlled-item-forsake")),
+      itemOwner,
+      cloak,
+      frodo,
+      cost,
+    );
+    const state: GameState = {
+      ...attached,
+      pendingDecisions: [
+        {
+          type: "forsake",
+          playerId: wielderOwner,
+          minimum: 1,
+          reason: "test",
+        },
+      ],
+    };
+
+    expect(
+      getLegalActions(state, wielderOwner).pendingDecision,
+    ).toMatchObject({
+      type: "forsake",
+      choices: expect.arrayContaining([
+        { source: "reserve", cardId: cloak },
+      ]),
+    });
+
+    const result = tryForsake(attached, wielderOwner, "reserve", cloak);
+
+    expect(result.ok).toBe(true);
+    expect(result.state.players[itemOwner].eliminated).toContain(cloak);
+    expect(result.state.attachments[frodo]).toBeUndefined();
+    expect(result.state.players[wielderOwner].reserve).toContain(frodo);
+    expect(assertGameInvariants(result.state)).toEqual([]);
   });
 });
 

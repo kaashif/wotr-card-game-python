@@ -104,7 +104,7 @@ state after PR #22 and PR #23.
 - [x] Apply item replacement effects with wielder replacement effects.
 - [x] Enforce weapon restrictions such as Bow of Galadhrim.
 - [ ] Keep items on active characters from unactivating the character.
-- [ ] Implement item forsake/control semantics for reserve wielders.
+- [x] Implement item forsake/control semantics for reserve wielders.
 
 ## Combat
 

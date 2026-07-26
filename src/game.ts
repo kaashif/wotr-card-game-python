@@ -686,7 +686,11 @@ export function forsakeCard(
   if (source === "hand" && player.hand.includes(instanceId)) {
     return eliminateCards(state, [instanceId]);
   }
-  if (source === "reserve" && player.reserve.includes(instanceId)) {
+  if (
+    source === "reserve" &&
+    (player.reserve.includes(instanceId) ||
+      controlledReserveItems(state, playerId).includes(instanceId))
+  ) {
     return eliminateCards(state, [instanceId]);
   }
   return null;
@@ -2518,13 +2522,50 @@ function playDrawnCardWithoutCost(
   );
 }
 
-function availableForsakeCount(state: GameState, playerId: PlayerId): number {
+export function legalForsakeChoices(
+  state: GameState,
+  playerId: PlayerId,
+): readonly ForsakeChoice[] {
+  const player = state.players[playerId];
+  return [
+    ...player.hand.map((cardId) => ({
+      source: "hand" as const,
+      cardId,
+    })),
+    ...player.reserve.map((cardId) => ({
+      source: "reserve" as const,
+      cardId,
+    })),
+    ...controlledReserveItems(state, playerId).map((cardId) => ({
+      source: "reserve" as const,
+      cardId,
+    })),
+    ...(player.draw.length + player.cycle.length > 0
+      ? [{ source: "draw" as const }]
+      : []),
+  ];
+}
+
+export function availableForsakeCount(
+  state: GameState,
+  playerId: PlayerId,
+): number {
   const player = state.players[playerId];
   return (
     player.hand.length +
     player.reserve.length +
+    controlledReserveItems(state, playerId).length +
     player.draw.length +
     player.cycle.length
+  );
+}
+
+function controlledReserveItems(
+  state: GameState,
+  playerId: PlayerId,
+): readonly string[] {
+  return state.players[playerId].reserve.flatMap(
+    (wielderId) => state.attachments[wielderId] ?? [],
   );
 }
 

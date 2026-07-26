@@ -3,6 +3,8 @@ import {
   canMoveTo,
   canPass,
   canPlayTo,
+  availableForsakeCount,
+  legalForsakeChoices,
   legalCombatLossSelections,
 } from "./game";
 import type {
@@ -139,29 +141,16 @@ function legalPendingDecision(
       if (decision.playerId !== playerId) {
         return null;
       }
-      const player = state.players[playerId];
-      const choices: ForsakeChoice[] = [
-        ...player.hand.map((cardId) => ({
-          source: "hand" as const,
-          cardId,
-        })),
-        ...player.reserve.map((cardId) => ({
-          source: "reserve" as const,
-          cardId,
-        })),
-        ...(player.draw.length + player.cycle.length > 0
-          ? [{ source: "draw" as const }]
-          : []),
-      ];
+      const choices: readonly ForsakeChoice[] = legalForsakeChoices(
+        state,
+        playerId,
+      );
       return {
         type: decision.type,
         playerId,
         required: Math.min(
           decision.minimum,
-          player.hand.length +
-            player.reserve.length +
-            player.draw.length +
-            player.cycle.length,
+          availableForsakeCount(state, playerId),
         ),
         choices,
       };
